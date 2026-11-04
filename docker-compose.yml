@@ -9,6 +9,11 @@ services:
     environment:
       # Generate with: docker compose run --rm jnotes hash-password
       JNotes__PasswordHash: ${JNOTES_PASSWORD_HASH:?Set JNOTES_PASSWORD_HASH in .env}
+      # Claude Desktop (MCP) access token. Generate with: docker compose run --rm jnotes generate-token
+      JNotes__McpToken: ${JNOTES_MCP_TOKEN:-}
+      # Lets JNotes answer ✨ /ai requests itself using your Claude subscription.
+      # Create on any PC with Claude Code: `claude setup-token`, then paste into .env.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       TZ: ${TZ:-Etc/UTC}
     volumes:
       - jnotes-data:/data

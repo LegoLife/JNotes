@@ -14,6 +14,10 @@ public static class DataServiceExtensions
         services.AddSingleton<ITemplateStore, TemplateStore>();
         services.AddSingleton<INoteSearch, NoteSearch>();
         services.AddSingleton<NoteFactory>();
+        services.AddSingleton<ICommandStore, CommandStore>();
+        services.AddSingleton<NoteEvents>();
+        services.AddSingleton<NoteOperations>();
+        services.AddSingleton<AiRequestProcessor>(); // needs an IAiGenerator registered by the host
         return services;
     }
 

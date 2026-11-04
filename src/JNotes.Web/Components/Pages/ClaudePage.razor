@@ -1,0 +1,188 @@
+@page "/claude"
+@using JNotes.Web.Mcp
+@inject ICommandStore Commands
+@inject IAiGenerator Generator
+@inject IMcpAuthenticator McpAuth
+@inject IConfiguration Config
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>Claude · JNotes</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-1">Claude</MudText>
+<MudText Typo="Typo.body2" Class="mb-6 text-secondary">
+    Claude Desktop connects to JNotes over your network and can search, read and write your notes.
+    It can add and edit, but never delete or overwrite whole notes.
+</MudText>
+
+<MudText Typo="Typo.h6" Class="mb-2">How to use it</MudText>
+<ul class="claude-howto">
+    <li><b>Ask inline:</b> in a note, type <code>/ai</code> followed by a space (or use the <MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Size="Size.Small" Style="vertical-align:middle" /> button),
+        write what you want, e.g. <i>“Summarise this chapter from my highlights”</i>, and press <b>Enter</b>.
+        Claude's answer appears in place a few seconds later with <b>Accept</b> / <b>Discard</b>.</li>
+    <li><b>Bigger jobs in Claude Desktop:</b> click <b>+</b> → <b>jnotes</b> and pick a command below, or just ask
+        “Find my notes on Dune and add a character list to the Dune note.” Claude Desktop can search and edit across all your notes.</li>
+</ul>
+
+<MudText Typo="Typo.h6" Class="mt-6 mb-2">Inline answers (Claude Code)</MudText>
+<MudText Typo="Typo.body2" Class="mb-2">
+    JNotes answers <code>/ai</code> requests by running Claude Code in the background with your Claude subscription (no API key).
+    On a PC where you're signed in to Claude Code it just works. In Docker, run <code>claude setup-token</code> on any computer with
+    Claude Code, put the token in <code>.env</code> as <code>CLAUDE_CODE_OAUTH_TOKEN=…</code>, and restart JNotes.
+</MudText>
+<div class="d-flex align-center gap-3 mb-2">
+    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PlayArrow"
+               Disabled="_testing" OnClick="TestGenerationAsync">@(_testing ? "Asking Claude…" : "Test it")</MudButton>
+    @if (_testResult is not null)
+    {
+        <MudText Typo="Typo.body2" Color="@(_testOk ? Color.Success : Color.Error)">@_testResult</MudText>
+    }
+</div>
+
+<MudText Typo="Typo.h6" Class="mt-6 mb-2">Connect Claude Desktop</MudText>
+@if (!McpAuth.IsConfigured)
+{
+    <MudAlert Severity="Severity.Warning">
+        The Claude connection is turned off because no access token is set. Generate one with
+        <code>docker compose run --rm jnotes generate-token</code>, add it to your <code>.env</code> as
+        <code>JNOTES_MCP_TOKEN=…</code>, and restart JNotes.
+    </MudAlert>
+}
+else
+{
+    <ol class="claude-steps">
+        <li>On the computer running Claude Desktop, install <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> (LTS).</li>
+        <li>In Claude Desktop open <b>Settings → Developer → Edit Config</b> and add this to <code>claude_desktop_config.json</code>
+            (merge it into any existing <code>mcpServers</code>):</li>
+    </ol>
+    @if (Nav.BaseUri.Contains("localhost") || Nav.BaseUri.Contains("127.0.0.1"))
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+            You're viewing JNotes on <code>localhost</code>. If Claude Desktop runs on another computer, replace it with this machine's network address (e.g. the Pi's IP).
+        </MudAlert>
+    }
+    <div class="config-box">
+        <pre>@(_reveal ? Snippet(Token) : Snippet("••••••••"))</pre>
+        <div class="config-actions">
+            <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@(_reveal ? Icons.Material.Outlined.VisibilityOff : Icons.Material.Outlined.Visibility)"
+                       OnClick="() => _reveal = !_reveal">@(_reveal ? "Hide token" : "Show token")</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.ContentCopy"
+                       OnClick="CopyAsync">Copy</MudButton>
+        </div>
+    </div>
+    <ol class="claude-steps" start="3">
+        <li>Fully quit and reopen Claude Desktop. “jnotes” should appear under the <b>+</b> menu’s connectors.</li>
+    </ol>
+}
+
+<div class="home-header mt-8">
+    <MudText Typo="Typo.h6">Commands</MudText>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="CreateAsync">New command</MudButton>
+</div>
+<MudText Typo="Typo.body2" Class="mb-3 text-secondary">
+    Commands are reusable instructions that show up in Claude's <b>+</b> menu. Put <code>{{placeholders}}</code> in the text and Claude
+    will ask for them, e.g. <code>{{book}}</code>. After adding or renaming commands, restart Claude Desktop to see them.
+</MudText>
+
+@if (_commands is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <ul class="recent-list">
+        @foreach (var c in _commands)
+        {
+            <li>
+                <a href="@($"claude/commands/{c.Id}")">
+                    <span class="recent-title">
+                        @c.Title
+                        @foreach (var arg in CommandPrompts.Arguments(c.Body))
+                        {
+                            <span class="arg-chip">@arg</span>
+                        }
+                    </span>
+                    <span class="recent-date">@c.Description</span>
+                </a>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private IReadOnlyList<Command>? _commands;
+    private bool _reveal;
+    private bool _testing, _testOk;
+    private string? _testResult;
+
+    private async Task TestGenerationAsync()
+    {
+        _testing = true;
+        _testResult = null;
+        var started = DateTime.UtcNow;
+        try
+        {
+            var answer = await Generator.GenerateAsync(new GenerationContext("Connection test", "", AiPrompt.RequestMarker, "Reply with exactly: Claude is connected"));
+            _testOk = true;
+            _testResult = $"✓ “{AiPrompt.CleanAnswer(answer)}” ({(DateTime.UtcNow - started).TotalSeconds:0.0}s)";
+        }
+        catch (GenerationException ex)
+        {
+            _testOk = false;
+            _testResult = ex.Message;
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+
+    private string Token => Config["JNotes:McpToken"] ?? "";
+    private string McpUrl => Nav.BaseUri + "mcp";
+
+    protected override async Task OnInitializedAsync() => _commands = await Commands.ListAsync();
+
+    private string Snippet(string token) => $$"""
+        {
+          "mcpServers": {
+            "jnotes": {
+              "command": "npx",
+              "args": ["-y", "mcp-remote", "{{McpUrl}}", "--allow-http", "--header", "Authorization:${JNOTES_AUTH}"],
+              "env": { "JNOTES_AUTH": "Bearer {{token}}" }
+            }
+          }
+        }
+        """;
+
+    private async Task CopyAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Snippet(Token));
+            Snackbar.Add("Copied (includes your token, so keep it private).", Severity.Success);
+        }
+        catch (JSException)
+        {
+            // Clipboard API needs HTTPS or localhost; on plain-HTTP LAN addresses show the token to copy manually.
+            _reveal = true;
+            Snackbar.Add("Your browser blocked clipboard access here; select the text and copy it manually.", Severity.Warning);
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        var dialog = await Dialogs.ShowAsync<NameDialog>(null, new DialogParameters<NameDialog>
+        {
+            { x => x.Title, "New command" }, { x => x.Label, "Command name (as shown in Claude)" }, { x => x.ConfirmText, "Create" },
+        }, new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        if (await dialog.Result is not { Canceled: false, Data: string title }) return;
+        try
+        {
+            var command = await Commands.CreateAsync(title, "", "");
+            Nav.NavigateTo($"claude/commands/{command.Id}");
+        }
+        catch (DomainException ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+    }
+}

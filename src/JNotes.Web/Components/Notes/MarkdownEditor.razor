@@ -38,6 +38,9 @@
     /// <summary>Called (debounced) with the full markdown whenever the user edits.</summary>
     [Parameter, EditorRequired] public Func<string, Task> SaveAsync { get; set; } = default!;
 
+    /// <summary>Called with a request id when Enter is pressed in a ✨ box. Null = generation not offered (e.g. templates).</summary>
+    [Parameter] public Func<string, Task>? GenerateAsync { get; set; }
+
     private static readonly (string Command, string Icon, string Label)[][] ToolbarGroups =
     [
         [
@@ -61,6 +64,9 @@
             ("hr", Icons.Material.Filled.HorizontalRule, "Divider"),
         ],
         [
+            ("aiRequest", Icons.Material.Outlined.AutoAwesome, "Ask Claude here (or type /ai)"),
+        ],
+        [
             ("undo", Icons.Material.Filled.Undo, "Undo (Ctrl+Z)"),
             ("redo", Icons.Material.Filled.Redo, "Redo (Ctrl+Shift+Z)"),
         ],
@@ -78,7 +84,15 @@
         _self = DotNetObjectReference.Create(this);
         _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/editor.js");
         _editor = await _module.InvokeAsync<IJSObjectReference>("create", _host, _self, Markdown,
-            new { debounceMs = 1000, fileInput = _fileInput });
+            new { debounceMs = 1000, fileInput = _fileInput, canGenerate = GenerateAsync is not null });
+    }
+
+    [JSInvokable]
+    public Task OnGenerate(string requestId) => GenerateAsync?.Invoke(requestId) ?? Task.CompletedTask;
+
+    public async Task SetRequestStatusAsync(string requestId, string? status)
+    {
+        if (_editor is not null) await _editor.InvokeAsync<bool>("setRequestStatus", requestId, status);
     }
 
     [JSInvokable]
@@ -90,6 +104,20 @@
     public async Task FocusAsync()
     {
         if (_editor is not null) await _editor.InvokeVoidAsync("focus");
+    }
+
+    /// <summary>Applies an edit Claude made on the server: a targeted patch if possible, else a full reload.</summary>
+    public async Task ApplyEditAsync(NoteEdit edit)
+    {
+        if (_editor is null) return;
+        var applied = edit switch
+        {
+            RequestFulfilledEdit f => await _editor.InvokeAsync<bool>("applyRemote", "fulfill", new { requestId = f.RequestId, block = f.ResultBlock }),
+            AppendEdit a => await _editor.InvokeAsync<bool>("applyRemote", "append", new { markdown = a.Markdown }),
+            SectionEdit s => await _editor.InvokeAsync<bool>("applyRemote", "section", new { heading = s.Heading, markdown = s.Markdown }),
+            _ => false,
+        };
+        if (!applied) await _editor.InvokeVoidAsync("setMarkdown", edit.NewContent);
     }
 
     private async Task ExecAsync(string command)

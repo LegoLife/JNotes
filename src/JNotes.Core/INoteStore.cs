@@ -14,6 +14,8 @@ public interface INoteStore
 
     Task<Note?> GetNoteAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<Note>> GetRecentNotesAsync(int take, CancellationToken ct = default);
+    /// <summary>Notes whose markdown contains the given literal text (case-sensitive).</summary>
+    Task<IReadOnlyList<Note>> FindNotesContainingAsync(string text, CancellationToken ct = default);
     Task<Note> CreateNoteAsync(string title, Guid? folderId, string content = "", CancellationToken ct = default);
     Task RenameNoteAsync(Guid id, string title, CancellationToken ct = default);
     Task MoveNoteAsync(Guid id, Guid? folderId, CancellationToken ct = default);

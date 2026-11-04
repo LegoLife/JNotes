@@ -1,7 +1,9 @@
 using JNotes.Core;
 using JNotes.Data;
+using JNotes.Web.Ai;
 using JNotes.Web.Auth;
 using JNotes.Web.Components;
+using JNotes.Web.Mcp;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -14,6 +16,12 @@ if (args is ["hash-password", .. var rest])
     var pw = rest.Length > 0 ? rest[0] : ReadPassword();
     if (string.IsNullOrEmpty(pw)) { Console.Error.WriteLine("Password can't be empty."); return 1; }
     Console.WriteLine(PasswordVerifier.Hash(pw));
+    return 0;
+}
+// `dotnet JNotes.Web.dll generate-token` prints a random token for JNotes__McpToken.
+if (args is ["generate-token", ..])
+{
+    Console.WriteLine(StaticTokenAuthenticator.Generate());
     return 0;
 }
 
@@ -37,6 +45,12 @@ builder.Services.AddMudServices();
 builder.Services.AddJNotesData($"Data Source={Path.Combine(dataDir, "jnotes.db")}");
 builder.Services.AddSingleton(new AttachmentStore(Path.Combine(dataDir, "attachments")));
 builder.Services.AddSingleton<DocmostImporter>();
+builder.Services.AddJNotesMcp(builder.Configuration["JNotes:McpToken"]);
+
+// Inline ✨ generation via Claude Code headless (uses the Claude subscription; no API key).
+var claudeOptions = builder.Configuration.GetSection("JNotes:Claude").Get<ClaudeCodeOptions>() ?? new ClaudeCodeOptions();
+builder.Services.AddSingleton(claudeOptions);
+builder.Services.AddSingleton<IAiGenerator, ClaudeCodeGenerator>();
 builder.Services.AddSingleton(new PasswordVerifier(passwordHash));
 
 builder.Services.AddDataProtection()
@@ -73,6 +87,7 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 
+app.UseMcpAuth(); // bearer token for /mcp; the cookie login below is for the web UI
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
@@ -105,6 +120,10 @@ attachmentsApi.MapGet("{name}", (string name, AttachmentStore store, HttpRespons
     response.Headers.XContentTypeOptions = "nosniff";
     return Results.File(path, AttachmentStore.ContentTypeFor(name), enableRangeProcessing: true);
 });
+
+app.MapMcp("/mcp");
+if (!app.Services.GetRequiredService<IMcpAuthenticator>().IsConfigured)
+    app.Logger.LogWarning("JNotes__McpToken is not set; the Claude (MCP) endpoint is disabled.");
 
 app.MapStaticAssets().AllowAnonymous();
 app.MapRazorComponents<App>()

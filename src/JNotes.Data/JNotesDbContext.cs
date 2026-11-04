@@ -8,6 +8,7 @@ public sealed class JNotesDbContext(DbContextOptions<JNotesDbContext> options) :
     public DbSet<Folder> Folders => Set<Folder>();
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<Template> Templates => Set<Template>();
+    public DbSet<Command> Commands => Set<Command>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -20,6 +21,13 @@ public sealed class JNotesDbContext(DbContextOptions<JNotesDbContext> options) :
         });
 
         b.Entity<Template>(e => e.Property(x => x.Name).HasMaxLength(Names.MaxLength));
+
+        b.Entity<Command>(e =>
+        {
+            e.Property(x => x.Title).HasMaxLength(Names.MaxLength);
+            e.Property(x => x.Name).HasMaxLength(80);
+            e.HasIndex(x => x.Name).IsUnique();
+        });
 
         b.Entity<Note>(e =>
         {
