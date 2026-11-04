@@ -25,6 +25,12 @@ public interface INoteStore
     /// <summary>Moves the note to Trash. Returns the trash batch (for Undo).</summary>
     Task<Guid> DeleteNoteAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>
+    /// Sets the custom order of a folder's children (null = top level). <paramref name="orderedIds"/> lists
+    /// folder and note ids that already live there; any children it leaves out keep their relative order after them.
+    /// </summary>
+    Task ReorderAsync(Guid? parentId, IReadOnlyList<Guid> orderedIds, CancellationToken ct = default);
+
     /// <summary>Lets the store tell other parts of the app that the tree changed (e.g. after a Trash restore).</summary>
     void NotifyTreeChanged();
 

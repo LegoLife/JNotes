@@ -78,6 +78,9 @@ namespace JNotes.Data.Migrations
                     b.Property<Guid?>("ParentId")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
+
                     b.Property<Guid?>("TrashBatch")
                         .HasColumnType("TEXT");
 
@@ -113,6 +116,9 @@ namespace JNotes.Data.Migrations
 
                     b.Property<Guid?>("FolderId")
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Title")
                         .IsRequired()

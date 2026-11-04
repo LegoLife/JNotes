@@ -12,11 +12,15 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var folders = await db.Folders.AsNoTracking()
-            .Select(f => new TreeEntry(f.Id, f.Name, f.ParentId, true)).ToListAsync(ct);
+            .Select(f => new { Entry = new TreeEntry(f.Id, f.Name, f.ParentId, true), f.SortOrder }).ToListAsync(ct);
         var notes = await db.Notes.AsNoTracking()
-            .Select(n => new TreeEntry(n.Id, n.Title, n.FolderId, false)).ToListAsync(ct);
-        return folders.OrderBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Concat(notes.OrderBy(n => n.Name, StringComparer.CurrentCultureIgnoreCase))
+            .Select(n => new { Entry = new TreeEntry(n.Id, n.Title, n.FolderId, false), n.SortOrder }).ToListAsync(ct);
+        // Custom order first; items never ordered (0) fall back to folders-then-notes, alphabetical.
+        return folders.Concat(notes)
+            .OrderBy(x => x.SortOrder)
+            .ThenByDescending(x => x.Entry.IsFolder)
+            .ThenBy(x => x.Entry.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Select(x => x.Entry)
             .ToList();
     }
 
@@ -42,7 +46,7 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
         await using var db = await factory.CreateDbContextAsync(ct);
         if (parentId is { } p) await RequireFolder(db, p, ct);
         var now = clock.GetUtcNow();
-        var folder = new Folder { Name = Names.Normalize(name, "Folder"), ParentId = parentId, CreatedAt = now, UpdatedAt = now };
+        var folder = new Folder { Name = Names.Normalize(name, "Folder"), ParentId = parentId, SortOrder = await NextSortOrder(db, parentId, ct), CreatedAt = now, UpdatedAt = now };
         db.Folders.Add(folder);
         await db.SaveChangesAsync(ct);
         TreeChanged?.Invoke();
@@ -71,6 +75,7 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
             for (Guid? cur = target; cur is { } c; cur = parents.GetValueOrDefault(c))
                 if (c == id) throw new DomainException("Can't move a folder into itself or one of its subfolders.");
         }
+        if (folder.ParentId != newParentId) folder.SortOrder = await NextSortOrder(db, newParentId, ct);
         folder.ParentId = newParentId;
         folder.UpdatedAt = clock.GetUtcNow();
         await db.SaveChangesAsync(ct);
@@ -121,7 +126,7 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
         await using var db = await factory.CreateDbContextAsync(ct);
         if (folderId is { } f) await RequireFolder(db, f, ct);
         var now = clock.GetUtcNow();
-        var note = new Note { Title = Names.Normalize(title, "Note"), FolderId = folderId, Content = content, CreatedAt = now, UpdatedAt = now };
+        var note = new Note { Title = Names.Normalize(title, "Note"), FolderId = folderId, SortOrder = await NextSortOrder(db, folderId, ct), Content = content, CreatedAt = now, UpdatedAt = now };
         db.Notes.Add(note);
         await db.SaveChangesAsync(ct);
         TreeChanged?.Invoke();
@@ -143,6 +148,7 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
         await using var db = await factory.CreateDbContextAsync(ct);
         var note = await RequireNote(db, id, ct);
         if (folderId is { } f) await RequireFolder(db, f, ct);
+        if (note.FolderId != folderId) note.SortOrder = await NextSortOrder(db, folderId, ct);
         note.FolderId = folderId;
         note.UpdatedAt = clock.GetUtcNow();
         await db.SaveChangesAsync(ct);
@@ -185,6 +191,37 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
         note.CreatedAt = createdAt;
         note.UpdatedAt = updatedAt;
         await db.SaveChangesAsync(ct);
+    }
+
+    public async Task ReorderAsync(Guid? parentId, IReadOnlyList<Guid> orderedIds, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var folders = await db.Folders.Where(f => f.ParentId == parentId).ToListAsync(ct);
+        var notes = await db.Notes.Where(n => n.FolderId == parentId).ToListAsync(ct);
+        var rank = orderedIds.Distinct().Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+
+        // Listed ids first in the given order, then anything not listed in its current display order.
+        var children = folders.Select(f => (f.Id, f.SortOrder, IsFolder: true, f.Name, Set: (Action<int>)(v => f.SortOrder = v)))
+            .Concat(notes.Select(n => (n.Id, n.SortOrder, IsFolder: false, Name: n.Title, Set: (Action<int>)(v => n.SortOrder = v))))
+            .OrderBy(c => rank.GetValueOrDefault(c.Id, int.MaxValue))
+            .ThenBy(c => c.SortOrder).ThenByDescending(c => c.IsFolder).ThenBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        for (var i = 0; i < children.Count; i++) children[i].Set(i + 1);
+
+        await db.SaveChangesAsync(ct);
+        TreeChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Where a new arrival goes: at the end if the folder has a custom order, otherwise 0 so it
+    /// sorts alphabetically with everything else.
+    /// </summary>
+    private static async Task<int> NextSortOrder(JNotesDbContext db, Guid? parentId, CancellationToken ct)
+    {
+        var maxFolder = await db.Folders.Where(f => f.ParentId == parentId).MaxAsync(f => (int?)f.SortOrder, ct) ?? 0;
+        var maxNote = await db.Notes.Where(n => n.FolderId == parentId).MaxAsync(n => (int?)n.SortOrder, ct) ?? 0;
+        var max = Math.Max(maxFolder, maxNote);
+        return max == 0 ? 0 : max + 1;
     }
 
     public void NotifyTreeChanged() => TreeChanged?.Invoke();

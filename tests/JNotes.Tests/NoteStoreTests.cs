@@ -33,6 +33,58 @@ public class NoteStoreTests
     }
 
     [Fact]
+    public async Task Custom_order_mixes_folders_and_notes_and_new_items_go_last()
+    {
+        await using var db = await TestDb.CreateAsync();
+        var folder = await db.Store.CreateFolderAsync("Folder", null);
+        var a = await db.Store.CreateNoteAsync("A", null);
+        var b = await db.Store.CreateNoteAsync("B", null);
+
+        await db.Store.ReorderAsync(null, [b.Id, folder.Id, a.Id]);
+        await db.Store.CreateNoteAsync("0 new", null);
+
+        Assert.Equal(["B", "Folder", "A", "0 new"], (await db.Store.GetTreeAsync()).Select(e => e.Name));
+    }
+
+    [Fact]
+    public async Task Reorder_keeps_unlisted_children_after_listed_ones_and_ignores_other_folders()
+    {
+        await using var db = await TestDb.CreateAsync();
+        var inbox = await db.Store.CreateFolderAsync("Inbox", null);
+        var a = await db.Store.CreateNoteAsync("A", inbox.Id);
+        await db.Store.CreateNoteAsync("B", inbox.Id);
+        var c = await db.Store.CreateNoteAsync("C", inbox.Id);
+        var outside = await db.Store.CreateNoteAsync("Outside", null);
+
+        await db.Store.ReorderAsync(inbox.Id, [c.Id, outside.Id, a.Id]);
+
+        var tree = await db.Store.GetTreeAsync();
+        Assert.Equal(["C", "A", "B"], tree.Where(e => e.ParentId == inbox.Id).Select(e => e.Name));
+        Assert.Null(tree.Single(e => e.Id == outside.Id).ParentId);
+    }
+
+    [Fact]
+    public async Task Moving_into_an_unordered_folder_stays_alphabetical_but_into_an_ordered_one_goes_last()
+    {
+        await using var db = await TestDb.CreateAsync();
+        var plain = await db.Store.CreateFolderAsync("Plain", null);
+        var ordered = await db.Store.CreateFolderAsync("Ordered", null);
+        await db.Store.CreateNoteAsync("M", plain.Id);
+        var y = await db.Store.CreateNoteAsync("Y", ordered.Id);
+        var z = await db.Store.CreateNoteAsync("Z", ordered.Id);
+        await db.Store.ReorderAsync(ordered.Id, [z.Id, y.Id]);
+        var a1 = await db.Store.CreateNoteAsync("A1", null);
+        var a2 = await db.Store.CreateNoteAsync("A2", null);
+
+        await db.Store.MoveNoteAsync(a1.Id, plain.Id);
+        await db.Store.MoveNoteAsync(a2.Id, ordered.Id);
+
+        var tree = await db.Store.GetTreeAsync();
+        Assert.Equal(["A1", "M"], tree.Where(e => e.ParentId == plain.Id).Select(e => e.Name));
+        Assert.Equal(["Z", "Y", "A2"], tree.Where(e => e.ParentId == ordered.Id).Select(e => e.Name));
+    }
+
+    [Fact]
     public async Task Deleting_a_folder_removes_everything_beneath_it()
     {
         await using var db = await TestDb.CreateAsync();

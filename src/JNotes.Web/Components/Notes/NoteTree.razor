@@ -1,4 +1,5 @@
-@implements IDisposable
+@implements IAsyncDisposable
+@inject IJSRuntime JS
 @inject INoteStore Store
 @inject NoteFactory Factory
 @inject ITrash Trash
@@ -23,11 +24,11 @@
     </MudTooltip>
 </div>
 
-@* Raw ondragstart sets dataTransfer (required by Firefox to start a drag); Blazor handles the rest. *@
-<nav class="tree @(_dragging is not null && _dropTarget == RootTarget ? "drop-root" : null)" aria-label="Notes"
+@* Raw ondragstart sets dataTransfer (required by Firefox to start a drag). tree-dnd.js shows the drop
+   position and reports drops to DropAt; Blazor tracks the dragged item and opens folders on hover. *@
+<nav @ref="_nav" class="tree @(_dragging is not null && _dropTarget == RootTarget ? "drop-root" : null)" aria-label="Notes"
      ondragstart="event.dataTransfer.setData('text/plain','jnotes');event.dataTransfer.effectAllowed='move'"
-     @ondragenter="() => SetDropTarget(RootTarget)" @ondragover:preventDefault="true"
-     @ondrop="() => DropAsync(null)">
+     @ondragenter="() => SetDropTarget(RootTarget)">
     @if (_index.IsEmpty)
     {
         <MudText Typo="Typo.body2" Class="tree-empty">No notes yet. Create a folder or a note to get started.</MudText>
@@ -82,20 +83,21 @@
 
     private RenderFragment RenderLevel(Guid? parentId, int depth) => __builder =>
     {
-        foreach (var entry in _index.ChildrenOf(parentId))
+        var siblings = _index.ChildrenOf(parentId);
+        for (var i = 0; i < siblings.Count; i++)
         {
-            var e = entry;
+            var e = siblings[i];
+            var (first, last) = (i == 0, i == siblings.Count - 1);
             var indent = $"padding-left:{depth * 14 + 4}px";
             var dragClass = _dragging?.Id == e.Id ? "dragging" : null;
+            var noDrop = _dragging is not null && _noDrop.Contains(e.Id);
             if (e.IsFolder)
             {
                 var open = _expanded.Contains(e.Id);
-                var dropClass = _dragging is not null && _dropTarget == e.Id && CanDropInto(e.Id) ? "drop-target" : null;
-                <div class="tree-row @dragClass @dropClass" style="@indent" draggable="true"
+                <div class="tree-row @dragClass" style="@indent" draggable="true"
+                     data-id="@e.Id" data-folder data-open="@open" data-nodrop="@noDrop"
                      @ondragstart="() => StartDrag(e)" @ondragend="EndDrag"
-                     @ondragenter="() => SetDropTarget(e.Id)" @ondragenter:stopPropagation="true"
-                     @ondragover:preventDefault="true"
-                     @ondrop="() => DropAsync(e.Id)" @ondrop:stopPropagation="true">
+                     @ondragenter="() => SetDropTarget(e.Id)" @ondragenter:stopPropagation="true">
                     <button class="tree-label" @onclick="() => Toggle(e.Id)" aria-expanded="@(open ? "true" : "false")">
                         <MudIcon Icon="@(open ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" Size="Size.Small" />
                         <MudIcon Icon="@(open ? Icons.Material.Outlined.FolderOpen : Icons.Material.Outlined.Folder)" Size="Size.Small" />
@@ -108,6 +110,8 @@
                         <MudMenuItem Icon="@Icons.Material.Outlined.DashboardCustomize" OnClick="() => Later(() => SetDefaultTemplateAsync(e))">Default template…</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => Later(() => RenameAsync(e))">Rename</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Outlined.DriveFileMove" OnClick="() => Later(() => MoveAsync(e))">Move</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.ArrowUpward" Disabled="first" OnClick="() => ShiftAsync(e, -1)">Move up</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.ArrowDownward" Disabled="last" OnClick="() => ShiftAsync(e, 1)">Move down</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="() => Later(() => DeleteAsync(e))">Delete</MudMenuItem>
                     </MudMenu>
                 </div>
@@ -118,12 +122,11 @@
             }
             else
             {
-                @* Dropping onto a note moves the dragged item next to it (into the note's folder). *@
+                @* Dropping onto a note places the dragged item just above or below it. *@
                 <div class="tree-row @(e.Id == _activeId ? "active" : null) @dragClass" style="@indent" draggable="true"
+                     data-id="@e.Id" data-nodrop="@noDrop"
                      @ondragstart="() => StartDrag(e)" @ondragend="EndDrag"
-                     @ondragenter="() => SetDropTarget(e.ParentId ?? RootTarget)" @ondragenter:stopPropagation="true"
-                     @ondragover:preventDefault="true"
-                     @ondrop="() => DropAsync(e.ParentId)" @ondrop:stopPropagation="true">
+                     @ondragenter="() => SetDropTarget(e.Id)" @ondragenter:stopPropagation="true">
                     <a class="tree-label" href="@($"notes/{e.Id}")" draggable="false">
                         <span class="tree-spacer"></span>
                         <MudIcon Icon="@Icons.Material.Outlined.Description" Size="Size.Small" />
@@ -132,6 +135,8 @@
                     <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true" Class="tree-menu" aria-label="@($"Actions for {e.Name}")">
                         <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => Later(() => RenameAsync(e))">Rename</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Outlined.DriveFileMove" OnClick="() => Later(() => MoveAsync(e))">Move</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.ArrowUpward" Disabled="first" OnClick="() => ShiftAsync(e, -1)">Move up</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.ArrowDownward" Disabled="last" OnClick="() => ShiftAsync(e, 1)">Move down</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="() => Later(() => DeleteAsync(e))">Delete</MudMenuItem>
                     </MudMenu>
                 </div>
@@ -226,20 +231,44 @@
         await MoveToAsync(e, target == Guid.Empty ? null : target);
     }
 
-    // ---------- Drag and drop ----------
-    // _dropTarget: folder id being hovered, RootTarget for top level, null for none.
+    // ---------- Ordering and drag and drop ----------
+    private ElementReference _nav;
+    private IJSObjectReference? _dndModule, _dnd;
+    private DotNetObjectReference<NoteTree>? _self;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _self = DotNetObjectReference.Create(this);
+        _dndModule = await JS.InvokeAsync<IJSObjectReference>("import", "./tree-dnd.js");
+        _dnd = await _dndModule.InvokeAsync<IJSObjectReference>("init", _nav, _self);
+    }
+
+    /// <summary>Swaps an item with its neighbour above (-1) or below (+1).</summary>
+    private async Task ShiftAsync(TreeEntry e, int delta)
+    {
+        var order = _index.ChildrenOf(e.ParentId).Select(c => c.Id).ToList();
+        var i = order.IndexOf(e.Id);
+        var j = i + delta;
+        if (i < 0 || j < 0 || j >= order.Count) return;
+        (order[i], order[j]) = (order[j], order[i]);
+        await RunAsync(() => Store.ReorderAsync(e.ParentId, order));
+    }
+
+    // _dropTarget: entry being hovered (folders open after a moment), RootTarget for empty space, null for none.
     private static readonly Guid RootTarget = Guid.Empty;
     private TreeEntry? _dragging;
-    private HashSet<Guid> _invalidTargets = [];
+    private HashSet<Guid> _noDrop = [];
     private Guid? _dropTarget;
+
+    /// <summary>The item itself and everything inside it: nothing can be dropped onto those.</summary>
+    private HashSet<Guid> SelfAndInside(TreeEntry e) =>
+        e.IsFolder ? _index.DescendantsOf(e.Id).Select(d => d.Id).Append(e.Id).ToHashSet() : [e.Id];
 
     private void StartDrag(TreeEntry e)
     {
         _dragging = e;
-        // A folder can't go into itself or its own subfolders.
-        _invalidTargets = e.IsFolder
-            ? _index.DescendantsOf(e.Id).Where(d => d.IsFolder).Select(d => d.Id).Append(e.Id).ToHashSet()
-            : [];
+        _noDrop = SelfAndInside(e);
         _dropTarget = null;
     }
 
@@ -249,27 +278,48 @@
         _dropTarget = null;
     }
 
-    private bool CanDropInto(Guid folderId) => !_invalidTargets.Contains(folderId);
-
     private async Task SetDropTarget(Guid target)
     {
         if (_dragging is null || _dropTarget == target) return;
         _dropTarget = target;
 
         // Hovering a collapsed folder for a moment opens it, so deep folders are reachable.
-        if (target != RootTarget && !_expanded.Contains(target) && CanDropInto(target))
+        if (_index.Find(target) is { IsFolder: true } && !_expanded.Contains(target) && !_noDrop.Contains(target))
         {
             await Task.Delay(700);
             if (_dragging is not null && _dropTarget == target) _expanded.Add(target);
         }
     }
 
-    private async Task DropAsync(Guid? folderId)
+    /// <summary>Called by tree-dnd.js. zone: "before" / "after" / "into" the target row, or "root" for empty space.</summary>
+    [JSInvokable]
+    public async Task DropAt(string dragId, string? targetId, string zone)
     {
-        var item = _dragging;
         EndDrag();
-        if (item is null || (folderId is { } f && !CanDropInto(f))) return;
-        await MoveToAsync(item, folderId);
+        if (!Guid.TryParse(dragId, out var id) || _index.Find(id) is not { } item) return;
+        var target = Guid.TryParse(targetId, out var t) ? _index.Find(t) : null;
+
+        if (zone == "root") await MoveToAsync(item, null);
+        else if (target is null || SelfAndInside(item).Contains(target.Id)) { }
+        else if (zone == "into" && target.IsFolder) await MoveToAsync(item, target.Id);
+        else if (zone is "before" or "after") await PlaceNextToAsync(item, target, zone == "after");
+        StateHasChanged();
+    }
+
+    private async Task PlaceNextToAsync(TreeEntry item, TreeEntry target, bool after)
+    {
+        var parent = target.ParentId;
+        var order = _index.ChildrenOf(parent).Where(c => c.Id != item.Id).Select(c => c.Id).ToList();
+        order.Insert(order.IndexOf(target.Id) + (after ? 1 : 0), item.Id);
+        await RunAsync(async () =>
+        {
+            if (item.ParentId != parent)
+            {
+                if (item.IsFolder) await Store.MoveFolderAsync(item.Id, parent);
+                else await Store.MoveNoteAsync(item.Id, parent);
+            }
+            await Store.ReorderAsync(parent, order);
+        });
     }
 
     private async Task MoveToAsync(TreeEntry e, Guid? destination)
@@ -333,9 +383,16 @@
         catch (DomainException ex) { Snackbar.Add(ex.Message, Severity.Warning); }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         Store.TreeChanged -= OnTreeChanged;
         Nav.LocationChanged -= OnLocationChanged;
+        try
+        {
+            if (_dnd is not null) { await _dnd.InvokeVoidAsync("dispose"); await _dnd.DisposeAsync(); }
+            if (_dndModule is not null) await _dndModule.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        _self?.Dispose();
     }
 }

@@ -12,10 +12,13 @@ html, body { margin: 0; }
 .tree.drop-root { background: var(--mud-palette-action-default-hover); }
 .tree-row[draggable="true"] { cursor: grab; }
 .tree-row.dragging { opacity: .45; }
-.tree-row.drop-target {
+.tree-row[data-drop="into"] {
     background: var(--mud-palette-primary-hover);
     box-shadow: inset 0 0 0 2px var(--mud-palette-primary);
 }
+/* A line above or below the row shows where a reordered item will land. */
+.tree-row[data-drop="before"] { box-shadow: inset 0 2px 0 var(--mud-palette-primary); }
+.tree-row[data-drop="after"] { box-shadow: inset 0 -2px 0 var(--mud-palette-primary); }
 .tree-empty { padding: 8px 12px; color: var(--mud-palette-text-secondary); }
 .tree-row {
     display: flex; align-items: center; border-radius: 6px; min-height: 30px;
