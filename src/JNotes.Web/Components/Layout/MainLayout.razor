@@ -1,0 +1,71 @@
+﻿@inherits LayoutComponentBase
+
+<MudThemeProvider @ref="_themeProvider" Theme="_theme" @bind-IsDarkMode="_dark" />
+<MudPopoverProvider />
+<MudDialogProvider CloseOnEscapeKey="true" />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="0" Dense="true" Class="app-bar">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+                       OnClick="() => _drawerOpen = !_drawerOpen" aria-label="Toggle sidebar" />
+        <MudText Typo="Typo.h6" Class="ml-2">
+            <a href="" class="brand">JNotes</a>
+        </MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@(_dark ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="Color.Inherit" OnClick="() => _dark = !_dark" aria-label="Toggle dark mode" />
+        <form method="post" action="logout" data-enhance="false">
+            <AntiforgeryToken />
+            <MudIconButton ButtonType="ButtonType.Submit" Icon="@Icons.Material.Filled.Logout"
+                           Color="Color.Inherit" aria-label="Sign out" />
+        </form>
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="0"
+               Variant="DrawerVariant.Responsive" Width="280px" Class="sidebar">
+        <NoteTree />
+    </MudDrawer>
+
+    <MudMainContent>
+        <div class="page">
+            @Body
+        </div>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private MudThemeProvider? _themeProvider;
+    private bool _drawerOpen = true;
+    private bool _dark;
+
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#3d5a80",
+            AppbarBackground = "#ffffff",
+            AppbarText = "#1f2933",
+            DrawerBackground = "#f6f7f9",
+            Background = "#ffffff",
+        },
+        PaletteDark = new PaletteDark
+        {
+            Primary = "#8fb3de",
+            AppbarBackground = "#1b1d22",
+            DrawerBackground = "#1b1d22",
+            Background = "#22252b",
+            Surface = "#2a2d34",
+        },
+        LayoutProperties = new LayoutProperties { DefaultBorderRadius = "6px" },
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _themeProvider is not null)
+        {
+            _dark = await _themeProvider.GetSystemDarkModeAsync();
+            StateHasChanged();
+        }
+    }
+}

@@ -1,0 +1,1 @@
+{"name":"jnotes-editor","private":true,"type":"module","scripts":{"build":"esbuild src/editor.js --bundle --format=esm --minify --sourcemap --outfile=../wwwroot/js/editor.js"},"dependencies":{"@tiptap/core":"3.32.2","@tiptap/extensions":"3.32.2","@tiptap/markdown":"3.32.2","@tiptap/starter-kit":"3.32.2"},"devDependencies":{"esbuild":"0.28.2"}}

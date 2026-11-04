@@ -1,0 +1,51 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="editor-host" @ref="_host"></div>
+
+@code {
+    /// <summary>Initial markdown. Only read when the editor is created; re-key the component to load a different note.</summary>
+    [Parameter, EditorRequired] public string Markdown { get; set; } = "";
+
+    /// <summary>Called (debounced) with the full markdown whenever the user edits.</summary>
+    [Parameter, EditorRequired] public Func<string, Task> SaveAsync { get; set; } = default!;
+
+    private ElementReference _host;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _editor;
+    private DotNetObjectReference<MarkdownEditor>? _self;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _self = DotNetObjectReference.Create(this);
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/editor.js");
+        _editor = await _module.InvokeAsync<IJSObjectReference>("create", _host, _self, Markdown, new { debounceMs = 1000 });
+    }
+
+    [JSInvokable]
+    public Task OnContentChanged(string markdown) => SaveAsync(markdown);
+
+    public async Task FocusAsync()
+    {
+        if (_editor is not null) await _editor.InvokeVoidAsync("focus");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_editor is not null)
+            {
+                await _editor.InvokeVoidAsync("destroy"); // flushes any pending save first
+                await _editor.DisposeAsync();
+            }
+            if (_module is not null) await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit is gone (tab closed); the visibilitychange flush already ran in the browser.
+        }
+        _self?.Dispose();
+    }
+}

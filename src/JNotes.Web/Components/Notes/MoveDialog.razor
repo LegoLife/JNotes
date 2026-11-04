@@ -1,0 +1,31 @@
+<MudDialog>
+    <TitleContent>Move “@ItemName”</TitleContent>
+    <DialogContent>
+        <MudSelect T="Guid" @bind-Value="_target" Label="Destination" AnchorOrigin="Origin.BottomCenter">
+            <MudSelectItem T="Guid" Value="Guid.Empty">(Top level)</MudSelectItem>
+            @foreach (var (id, path) in Destinations)
+            {
+                <MudSelectItem T="Guid" Value="id">@path</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit">Move</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public string ItemName { get; set; } = "";
+    /// <summary>Allowed destination folders as (id, display path).</summary>
+    [Parameter] public IReadOnlyList<(Guid Id, string Path)> Destinations { get; set; } = [];
+    [Parameter] public Guid? CurrentParentId { get; set; }
+
+    private Guid _target;
+
+    protected override void OnInitialized() => _target = CurrentParentId ?? Guid.Empty;
+
+    /// <summary>Result data is the destination folder id, or Guid.Empty for top level.</summary>
+    private void Submit() => MudDialog.Close(DialogResult.Ok(_target));
+}

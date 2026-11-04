@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/JNotes.Core/JNotes.Core.csproj" />
+    <Project Path="src/JNotes.Data/JNotes.Data.csproj" />
+    <Project Path="src/JNotes.Web/JNotes.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/JNotes.Tests/JNotes.Tests.csproj" />
+  </Folder>
+</Solution>

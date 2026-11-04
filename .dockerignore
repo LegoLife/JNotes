@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/data/
+**/.vs/
+**/.idea/
+src/JNotes.Web/wwwroot/js/
+tests/
+.git/
+.env

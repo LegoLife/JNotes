@@ -1,0 +1,53 @@
+@page "/login"
+@layout LoginLayout
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using JNotes.Web.Auth
+@inject PasswordVerifier Verifier
+@inject NavigationManager Nav
+
+<PageTitle>Sign in · JNotes</PageTitle>
+
+<form class="login-card" method="post" @onsubmit="SignInAsync" @formname="login">
+    <AntiforgeryToken />
+    <h1>JNotes</h1>
+    <label for="password">Password</label>
+    <input id="password" name="Password" type="password" autocomplete="current-password" autofocus required
+           value="" />
+    @if (_failed)
+    {
+        <p class="login-error" role="alert">That password isn't right.</p>
+    }
+    <button type="submit">Sign in</button>
+</form>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private string? Password { get; set; }
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+
+    private bool _failed;
+
+    private async Task SignInAsync()
+    {
+        if (!Verifier.Verify(Password))
+        {
+            await Task.Delay(1000); // slow down guessing
+            _failed = true;
+            return;
+        }
+
+        var identity = new ClaimsIdentity([new Claim(ClaimTypes.Name, "owner")],
+            CookieAuthenticationDefaults.AuthenticationScheme);
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
+            new ClaimsPrincipal(identity), new AuthenticationProperties { IsPersistent = true });
+
+        Nav.NavigateTo(IsLocal(ReturnUrl) ? ReturnUrl! : "/", forceLoad: true);
+    }
+
+    private static bool IsLocal(string? url) =>
+        !string.IsNullOrEmpty(url) && url[0] == '/' && (url.Length == 1 || (url[1] != '/' && url[1] != '\\'));
+}

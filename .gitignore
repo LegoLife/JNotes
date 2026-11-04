@@ -1,0 +1,11 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+node_modules/
+# Built by the Editor npm project
+src/JNotes.Web/wwwroot/js/
+# Local dev database / keys
+src/JNotes.Web/data/
+.env

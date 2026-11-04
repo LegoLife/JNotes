@@ -1,0 +1,122 @@
+@page "/notes/{Id:guid}"
+@implements IDisposable
+@inject INoteStore Store
+@inject ISnackbar Snackbar
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_note is null)
+{
+    <PageTitle>Not found · JNotes</PageTitle>
+    <MudAlert Severity="Severity.Info">This note doesn't exist (it may have been deleted).</MudAlert>
+}
+else
+{
+    var noteId = _note.Id;
+    <PageTitle>@_title · JNotes</PageTitle>
+
+    <div class="note-meta">
+        <span class="breadcrumb">@(_folderPath ?? "Top level")</span>
+        <span class="save-state" aria-live="polite">@_saveState</span>
+    </div>
+
+    <input class="note-title" @ref="_titleInput" @bind="_title" @bind:after="RenameAsync" placeholder="Untitled"
+           maxlength="200" aria-label="Title" @onkeydown="TitleKeyDown" onfocus="this.select()" />
+
+    <MarkdownEditor @key="noteId" @ref="_editor" Markdown="@_note.Content" SaveAsync="@(md => SaveAsync(noteId, md))" />
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Note? _note;
+    private string _title = "";
+    private string? _folderPath;
+    private string _saveState = "";
+    private bool _loading = true;
+    private MarkdownEditor? _editor;
+    private ElementReference _titleInput;
+    private Guid? _focusedFor;
+
+    protected override void OnInitialized() => Store.TreeChanged += OnTreeChanged;
+
+    // Brand-new note: put the cursor in the (selected) title so you can just type its name.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_note is { Title: "Untitled", Content: "" } && _focusedFor != _note.Id)
+        {
+            _focusedFor = _note.Id;
+            await _titleInput.FocusAsync();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_note?.Id == Id) return;
+        _loading = true;
+        _note = await Store.GetNoteAsync(Id);
+        _title = _note?.Title ?? "";
+        _saveState = "";
+        await LoadPathAsync();
+        _loading = false;
+    }
+
+    private async Task LoadPathAsync()
+    {
+        if (_note?.FolderId is not { } folderId) { _folderPath = null; return; }
+        var index = new NoteTreeIndex(await Store.GetTreeAsync());
+        _folderPath = index.Find(folderId) is null ? null : index.PathOf(folderId);
+    }
+
+    // Keep breadcrumb (and title, if renamed from the sidebar) in sync with tree changes.
+    private void OnTreeChanged() => _ = InvokeAsync(async () =>
+    {
+        if (_note is null) return;
+        var fresh = await Store.GetNoteAsync(_note.Id);
+        if (fresh is null) return;
+        _note.FolderId = fresh.FolderId;
+        _note.Title = _title = fresh.Title;
+        await LoadPathAsync();
+        StateHasChanged();
+    });
+
+    private async Task RenameAsync()
+    {
+        if (_note is null) return;
+        var title = string.IsNullOrWhiteSpace(_title) ? "Untitled" : _title.Trim();
+        if (title == _note.Title) { _title = title; return; }
+        try
+        {
+            await Store.RenameNoteAsync(_note.Id, title);
+            _note.Title = _title = title;
+        }
+        catch (DomainException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Warning);
+            _title = _note.Title;
+        }
+    }
+
+    private async Task TitleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && _editor is not null) await _editor.FocusAsync();
+    }
+
+    private async Task SaveAsync(Guid noteId, string markdown)
+    {
+        try
+        {
+            await Store.SaveContentAsync(noteId, markdown);
+            if (_note?.Id == noteId) _saveState = $"Saved {DateTime.Now:HH:mm}";
+        }
+        catch (DomainException)
+        {
+            if (_note?.Id == noteId) _saveState = "Not saved: note was deleted";
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => Store.TreeChanged -= OnTreeChanged;
+}

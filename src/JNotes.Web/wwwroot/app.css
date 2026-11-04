@@ -1,0 +1,112 @@
+html, body { margin: 0; }
+
+.brand { color: inherit; text-decoration: none; font-weight: 600; letter-spacing: .02em; }
+.app-bar { border-bottom: 1px solid var(--mud-palette-lines-default); }
+.sidebar { border-right: 1px solid var(--mud-palette-lines-default); }
+
+.page { max-width: 820px; margin: 0 auto; padding: 24px 16px 96px; }
+
+/* ---------- Sidebar tree ---------- */
+.tree-toolbar { display: flex; align-items: center; padding: 8px 8px 4px 16px; }
+.tree { padding: 0 6px 24px; min-height: calc(100vh - 110px); border-radius: 6px; }
+.tree.drop-root { background: var(--mud-palette-action-default-hover); }
+.tree-row[draggable="true"] { cursor: grab; }
+.tree-row.dragging { opacity: .45; }
+.tree-row.drop-target {
+    background: var(--mud-palette-primary-hover);
+    box-shadow: inset 0 0 0 2px var(--mud-palette-primary);
+}
+.tree-empty { padding: 8px 12px; color: var(--mud-palette-text-secondary); }
+.tree-row {
+    display: flex; align-items: center; border-radius: 6px; min-height: 30px;
+}
+.tree-row:hover { background: var(--mud-palette-action-default-hover); }
+.tree-row.active { background: var(--mud-palette-primary-hover); }
+.tree-row.active .tree-name { font-weight: 600; }
+.tree-label {
+    flex: 1; min-width: 0; display: flex; align-items: center; justify-content: flex-start; gap: 4px;
+    padding: 4px 2px; background: none; border: 0; cursor: pointer;
+    color: var(--mud-palette-text-primary); text-decoration: none; font: inherit; font-size: .9rem; text-align: left;
+}
+.tree-spacer { width: 20px; flex: none; }
+.tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-menu { opacity: 0; transition: opacity .1s; }
+.tree-row:hover .tree-menu, .tree-row:focus-within .tree-menu { opacity: 1; }
+@media (hover: none) { .tree-menu { opacity: 1; } }
+
+/* ---------- Home ---------- */
+.home-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.recent-list { list-style: none; margin: 0; padding: 0; }
+.recent-list a {
+    display: flex; justify-content: space-between; gap: 16px; padding: 10px 12px; border-radius: 6px;
+    color: var(--mud-palette-text-primary); text-decoration: none;
+}
+.recent-list a:hover { background: var(--mud-palette-action-default-hover); }
+.recent-date { color: var(--mud-palette-text-secondary); font-size: .85rem; white-space: nowrap; }
+.recent-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Note page ---------- */
+.note-meta {
+    display: flex; justify-content: space-between; gap: 12px;
+    color: var(--mud-palette-text-secondary); font-size: .8rem; margin-bottom: 4px;
+}
+.note-title {
+    width: 100%; border: 0; outline: none; background: transparent; padding: 4px 0 12px;
+    font: 700 2rem/1.2 var(--mud-typography-default-family, system-ui, sans-serif);
+    color: var(--mud-palette-text-primary);
+}
+.note-title::placeholder { color: var(--mud-palette-text-disabled); }
+
+/* ---------- Editor (Tiptap / ProseMirror) ---------- */
+.editor-host .ProseMirror {
+    outline: none; min-height: 60vh; font-size: 1.02rem; line-height: 1.65;
+    color: var(--mud-palette-text-primary);
+}
+.editor-host .ProseMirror > * + * { margin-top: .6em; }
+.editor-host .ProseMirror h1 { font-size: 1.7rem; margin-top: 1.4em; }
+.editor-host .ProseMirror h2 { font-size: 1.4rem; margin-top: 1.3em; }
+.editor-host .ProseMirror h3 { font-size: 1.15rem; margin-top: 1.2em; }
+.editor-host .ProseMirror ul, .editor-host .ProseMirror ol { padding-left: 1.4em; }
+.editor-host .ProseMirror ul { list-style: disc; }
+.editor-host .ProseMirror ol { list-style: decimal; }
+.editor-host .ProseMirror blockquote {
+    border-left: 3px solid var(--mud-palette-lines-default); margin-left: 0; padding-left: 1em;
+    color: var(--mud-palette-text-secondary);
+}
+.editor-host .ProseMirror code {
+    background: var(--mud-palette-action-default-hover); border-radius: 4px; padding: .1em .3em; font-size: .9em;
+}
+.editor-host .ProseMirror pre {
+    background: var(--mud-palette-action-default-hover); border-radius: 6px; padding: .8em 1em; overflow-x: auto;
+}
+.editor-host .ProseMirror pre code { background: none; padding: 0; }
+.editor-host .ProseMirror a { color: var(--mud-palette-primary); }
+.editor-host .ProseMirror hr { border: 0; border-top: 1px solid var(--mud-palette-lines-default); margin: 1.5em 0; }
+.editor-host .ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder); float: left; height: 0; pointer-events: none;
+    color: var(--mud-palette-text-disabled);
+}
+
+/* ---------- Login (static page, no MudBlazor runtime) ---------- */
+.login-shell {
+    min-height: 100vh; display: grid; place-items: center; padding: 16px; box-sizing: border-box;
+    background: #f3f4f6; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #1f2933;
+}
+.login-card {
+    width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 10px;
+    background: #fff; padding: 28px; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,.08);
+}
+.login-card h1 { margin: 0 0 8px; font-size: 1.5rem; }
+.login-card label { font-size: .85rem; color: #52606d; }
+.login-card input { font: inherit; padding: 9px 10px; border: 1px solid #cbd2d9; border-radius: 6px; }
+.login-card button {
+    font: inherit; font-weight: 600; padding: 10px; border: 0; border-radius: 6px; cursor: pointer;
+    background: #3d5a80; color: #fff; margin-top: 6px;
+}
+.login-error { margin: 0; color: #b42318; font-size: .9rem; }
+@media (prefers-color-scheme: dark) {
+    .login-shell { background: #1b1d22; color: #e4e7eb; }
+    .login-card { background: #2a2d34; box-shadow: none; }
+    .login-card label { color: #9aa5b1; }
+    .login-card input { background: #22252b; color: inherit; border-color: #3e4450; }
+}

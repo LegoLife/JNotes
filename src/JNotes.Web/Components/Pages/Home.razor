@@ -1,0 +1,48 @@
+﻿@page "/"
+@inject INoteStore Store
+@inject NavigationManager Nav
+
+<PageTitle>JNotes</PageTitle>
+
+<div class="home-header">
+    <MudText Typo="Typo.h5">Recent notes</MudText>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.NoteAdd"
+               OnClick="NewNoteAsync">New note</MudButton>
+</div>
+
+@if (_recent is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_recent.Count == 0)
+{
+    <MudText Typo="Typo.body1" Class="mt-4">
+        Nothing here yet. Create a note, or use the folder button in the sidebar to start organising.
+    </MudText>
+}
+else
+{
+    <ul class="recent-list">
+        @foreach (var note in _recent)
+        {
+            <li>
+                <a href="@($"notes/{note.Id}")">
+                    <span class="recent-title">@note.Title</span>
+                    <span class="recent-date">@note.UpdatedAt.ToLocalTime().ToString("d MMM yyyy, HH:mm")</span>
+                </a>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private IReadOnlyList<Note>? _recent;
+
+    protected override async Task OnInitializedAsync() => _recent = await Store.GetRecentNotesAsync(20);
+
+    private async Task NewNoteAsync()
+    {
+        var note = await Store.CreateNoteAsync("Untitled", null);
+        Nav.NavigateTo($"notes/{note.Id}");
+    }
+}

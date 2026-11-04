@@ -1,0 +1,280 @@
+@implements IDisposable
+@inject INoteStore Store
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<div class="tree-toolbar">
+    <MudText Typo="Typo.overline">Notes</MudText>
+    <MudSpacer />
+    <MudTooltip Text="New note">
+        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.NoteAdd" OnClick="() => NewNoteAsync(null)" aria-label="New note" />
+    </MudTooltip>
+    <MudTooltip Text="New folder">
+        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="() => NewFolderAsync(null)" aria-label="New folder" />
+    </MudTooltip>
+</div>
+
+@* Raw ondragstart sets dataTransfer (required by Firefox to start a drag); Blazor handles the rest. *@
+<nav class="tree @(_dragging is not null && _dropTarget == RootTarget ? "drop-root" : null)" aria-label="Notes"
+     ondragstart="event.dataTransfer.setData('text/plain','jnotes');event.dataTransfer.effectAllowed='move'"
+     @ondragenter="() => SetDropTarget(RootTarget)" @ondragover:preventDefault="true"
+     @ondrop="() => DropAsync(null)">
+    @if (_index.IsEmpty)
+    {
+        <MudText Typo="Typo.body2" Class="tree-empty">No notes yet. Create a folder or a note to get started.</MudText>
+    }
+    @RenderLevel(null, 0)
+</nav>
+
+@code {
+    private NoteTreeIndex _index = new([]);
+    private readonly HashSet<Guid> _expanded = [];
+    private Guid? _activeId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Store.TreeChanged += OnTreeChanged;
+        Nav.LocationChanged += OnLocationChanged;
+        await ReloadAsync();
+        SetActiveFromUrl(Nav.Uri);
+    }
+
+    private async Task ReloadAsync() => _index = new NoteTreeIndex(await Store.GetTreeAsync());
+
+    private void OnTreeChanged() => _ = InvokeAsync(async () =>
+    {
+        await ReloadAsync();
+        StateHasChanged();
+    });
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(() =>
+    {
+        SetActiveFromUrl(e.Location);
+        StateHasChanged();
+    });
+
+    private void SetActiveFromUrl(string uri)
+    {
+        var rel = Nav.ToBaseRelativePath(uri);
+        _activeId = rel.StartsWith("notes/") && Guid.TryParse(rel.AsSpan(6, Math.Min(36, rel.Length - 6)), out var id) ? id : null;
+        if (_activeId is { } active)
+            foreach (var a in _index.AncestorsOf(active)) _expanded.Add(a.Id);
+    }
+
+    private RenderFragment RenderLevel(Guid? parentId, int depth) => __builder =>
+    {
+        foreach (var entry in _index.ChildrenOf(parentId))
+        {
+            var e = entry;
+            var indent = $"padding-left:{depth * 14 + 4}px";
+            var dragClass = _dragging?.Id == e.Id ? "dragging" : null;
+            if (e.IsFolder)
+            {
+                var open = _expanded.Contains(e.Id);
+                var dropClass = _dragging is not null && _dropTarget == e.Id && CanDropInto(e.Id) ? "drop-target" : null;
+                <div class="tree-row @dragClass @dropClass" style="@indent" draggable="true"
+                     @ondragstart="() => StartDrag(e)" @ondragend="EndDrag"
+                     @ondragenter="() => SetDropTarget(e.Id)" @ondragenter:stopPropagation="true"
+                     @ondragover:preventDefault="true"
+                     @ondrop="() => DropAsync(e.Id)" @ondrop:stopPropagation="true">
+                    <button class="tree-label" @onclick="() => Toggle(e.Id)" aria-expanded="@(open ? "true" : "false")">
+                        <MudIcon Icon="@(open ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" Size="Size.Small" />
+                        <MudIcon Icon="@(open ? Icons.Material.Outlined.FolderOpen : Icons.Material.Outlined.Folder)" Size="Size.Small" />
+                        <span class="tree-name">@e.Name</span>
+                    </button>
+                    <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true" Class="tree-menu" aria-label="@($"Actions for {e.Name}")">
+                        <MudMenuItem Icon="@Icons.Material.Outlined.NoteAdd" OnClick="() => NewNoteAsync(e.Id)">New note here</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="() => NewFolderAsync(e.Id)">New subfolder</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => RenameAsync(e)">Rename</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.DriveFileMove" OnClick="() => MoveAsync(e)">Move</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="() => DeleteAsync(e)">Delete</MudMenuItem>
+                    </MudMenu>
+                </div>
+                @if (open)
+                {
+                    @RenderLevel(e.Id, depth + 1)
+                }
+            }
+            else
+            {
+                @* Dropping onto a note moves the dragged item next to it (into the note's folder). *@
+                <div class="tree-row @(e.Id == _activeId ? "active" : null) @dragClass" style="@indent" draggable="true"
+                     @ondragstart="() => StartDrag(e)" @ondragend="EndDrag"
+                     @ondragenter="() => SetDropTarget(e.ParentId ?? RootTarget)" @ondragenter:stopPropagation="true"
+                     @ondragover:preventDefault="true"
+                     @ondrop="() => DropAsync(e.ParentId)" @ondrop:stopPropagation="true">
+                    <a class="tree-label" href="@($"notes/{e.Id}")" draggable="false">
+                        <span class="tree-spacer"></span>
+                        <MudIcon Icon="@Icons.Material.Outlined.Description" Size="Size.Small" />
+                        <span class="tree-name">@e.Name</span>
+                    </a>
+                    <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true" Class="tree-menu" aria-label="@($"Actions for {e.Name}")">
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => RenameAsync(e)">Rename</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.DriveFileMove" OnClick="() => MoveAsync(e)">Move</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="() => DeleteAsync(e)">Delete</MudMenuItem>
+                    </MudMenu>
+                </div>
+            }
+        }
+    };
+
+    private void Toggle(Guid id)
+    {
+        if (!_expanded.Remove(id)) _expanded.Add(id);
+    }
+
+    private async Task NewNoteAsync(Guid? folderId)
+    {
+        await RunAsync(async () =>
+        {
+            var note = await Store.CreateNoteAsync("Untitled", folderId);
+            if (folderId is { } f) _expanded.Add(f);
+            Nav.NavigateTo($"notes/{note.Id}");
+        });
+    }
+
+    private async Task NewFolderAsync(Guid? parentId)
+    {
+        var name = await PromptAsync("New folder", "Folder name", "", "Create");
+        if (name is null) return;
+        await RunAsync(async () =>
+        {
+            var folder = await Store.CreateFolderAsync(name, parentId);
+            if (parentId is { } p) _expanded.Add(p);
+            _expanded.Add(folder.Id);
+        });
+    }
+
+    private async Task RenameAsync(TreeEntry e)
+    {
+        var name = await PromptAsync(e.IsFolder ? "Rename folder" : "Rename note", "Name", e.Name, "Rename");
+        if (name is null || name == e.Name) return;
+        await RunAsync(() => e.IsFolder ? Store.RenameFolderAsync(e.Id, name) : Store.RenameNoteAsync(e.Id, name));
+    }
+
+    private async Task MoveAsync(TreeEntry e)
+    {
+        var dialog = await Dialogs.ShowAsync<MoveDialog>(null, new DialogParameters<MoveDialog>
+        {
+            { x => x.ItemName, e.Name },
+            { x => x.Destinations, _index.MoveDestinationsFor(e) },
+            { x => x.CurrentParentId, e.ParentId },
+        }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: Guid target }) return;
+        await MoveToAsync(e, target == Guid.Empty ? null : target);
+    }
+
+    // ---------- Drag and drop ----------
+    // _dropTarget: folder id being hovered, RootTarget for top level, null for none.
+    private static readonly Guid RootTarget = Guid.Empty;
+    private TreeEntry? _dragging;
+    private HashSet<Guid> _invalidTargets = [];
+    private Guid? _dropTarget;
+
+    private void StartDrag(TreeEntry e)
+    {
+        _dragging = e;
+        // A folder can't go into itself or its own subfolders.
+        _invalidTargets = e.IsFolder
+            ? _index.DescendantsOf(e.Id).Where(d => d.IsFolder).Select(d => d.Id).Append(e.Id).ToHashSet()
+            : [];
+        _dropTarget = null;
+    }
+
+    private void EndDrag()
+    {
+        _dragging = null;
+        _dropTarget = null;
+    }
+
+    private bool CanDropInto(Guid folderId) => !_invalidTargets.Contains(folderId);
+
+    private async Task SetDropTarget(Guid target)
+    {
+        if (_dragging is null || _dropTarget == target) return;
+        _dropTarget = target;
+
+        // Hovering a collapsed folder for a moment opens it, so deep folders are reachable.
+        if (target != RootTarget && !_expanded.Contains(target) && CanDropInto(target))
+        {
+            await Task.Delay(700);
+            if (_dragging is not null && _dropTarget == target) _expanded.Add(target);
+        }
+    }
+
+    private async Task DropAsync(Guid? folderId)
+    {
+        var item = _dragging;
+        EndDrag();
+        if (item is null || (folderId is { } f && !CanDropInto(f))) return;
+        await MoveToAsync(item, folderId);
+    }
+
+    private async Task MoveToAsync(TreeEntry e, Guid? destination)
+    {
+        if (destination == e.ParentId) return;
+        await RunAsync(async () =>
+        {
+            if (e.IsFolder) await Store.MoveFolderAsync(e.Id, destination);
+            else await Store.MoveNoteAsync(e.Id, destination);
+            if (destination is { } d)
+            {
+                _expanded.Add(d);
+                foreach (var a in _index.AncestorsOf(d)) _expanded.Add(a.Id);
+            }
+        });
+    }
+
+    private async Task DeleteAsync(TreeEntry e)
+    {
+        string message;
+        HashSet<Guid> removedNotes;
+        if (e.IsFolder)
+        {
+            var descendants = _index.DescendantsOf(e.Id).ToList();
+            removedNotes = descendants.Where(d => !d.IsFolder).Select(d => d.Id).ToHashSet();
+            message = descendants.Count == 0
+                ? $"Delete the empty folder “{e.Name}”?"
+                : $"Delete “{e.Name}” and everything in it ({removedNotes.Count} notes, {descendants.Count - removedNotes.Count} subfolders)? This can't be undone.";
+        }
+        else
+        {
+            removedNotes = [e.Id];
+            message = $"Delete “{e.Name}”? This can't be undone.";
+        }
+
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Delete", message, yesText: "Delete", cancelText: "Cancel");
+        if (confirmed != true) return;
+
+        await RunAsync(async () =>
+        {
+            if (e.IsFolder) await Store.DeleteFolderAsync(e.Id);
+            else await Store.DeleteNoteAsync(e.Id);
+            if (_activeId is { } active && removedNotes.Contains(active)) Nav.NavigateTo("");
+        });
+    }
+
+    private async Task<string?> PromptAsync(string title, string label, string value, string confirm)
+    {
+        var dialog = await Dialogs.ShowAsync<NameDialog>(null, new DialogParameters<NameDialog>
+        {
+            { x => x.Title, title }, { x => x.Label, label }, { x => x.Value, value }, { x => x.ConfirmText, confirm },
+        }, new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        var result = await dialog.Result;
+        return result is { Canceled: false, Data: string s } ? s : null;
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        try { await action(); }
+        catch (DomainException ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+    }
+
+    public void Dispose()
+    {
+        Store.TreeChanged -= OnTreeChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}

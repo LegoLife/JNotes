@@ -1,0 +1,17 @@
+services:
+  jnotes:
+    build: .
+    image: jnotes:latest
+    container_name: jnotes
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Generate with: docker compose run --rm jnotes hash-password
+      JNotes__PasswordHash: ${JNOTES_PASSWORD_HASH:?Set JNOTES_PASSWORD_HASH in .env}
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - jnotes-data:/data
+
+volumes:
+  jnotes-data:
