@@ -1,0 +1,89 @@
+@page "/trash"
+@inject ITrash Trash
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>Trash · JNotes</PageTitle>
+
+<div class="home-header">
+    <MudText Typo="Typo.h5">Trash</MudText>
+    <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.DeleteForever"
+               Disabled="_items is not { Count: > 0 }" OnClick="EmptyAsync">Empty trash</MudButton>
+</div>
+<MudText Typo="Typo.body2" Class="mb-4 text-secondary">
+    Deleted notes and folders stay here for 30 days, then they're removed for good.
+</MudText>
+
+@if (_items is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_items.Count == 0)
+{
+    <MudText>The trash is empty.</MudText>
+}
+else
+{
+    <ul class="recent-list">
+        @foreach (var item in _items)
+        {
+            <li class="trash-row">
+                <div class="trash-info">
+                    <MudIcon Icon="@(item.IsFolder ? Icons.Material.Outlined.Folder : Icons.Material.Outlined.Description)" Size="Size.Small" />
+                    <span class="recent-title">@item.Name</span>
+                    <span class="recent-date">
+                        @if (item.IsFolder) { <text>@item.NoteCount note@(item.NoteCount == 1 ? "" : "s")@(item.FolderCount > 0 ? $", {item.FolderCount} subfolder{(item.FolderCount == 1 ? "" : "s")}" : "") · </text> }
+                        from @item.OriginalLocation · deleted @item.DeletedAt.ToLocalTime().ToString("d MMM, HH:mm") · @DaysLeft(item) left
+                    </span>
+                </div>
+                <MudButton Size="Size.Small" StartIcon="@Icons.Material.Outlined.RestoreFromTrash" OnClick="() => RestoreAsync(item)">Restore</MudButton>
+                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.DeleteForever" Color="Color.Error"
+                               aria-label="@($"Delete {item.Name} forever")" OnClick="() => DeleteForeverAsync(item)" />
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private IReadOnlyList<TrashItem>? _items;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => _items = await Trash.ListAsync();
+
+    private static string DaysLeft(TrashItem item)
+    {
+        var days = Math.Max(0, (int)Math.Ceiling((item.DeletedAt + Retention.Trash - DateTimeOffset.UtcNow).TotalDays));
+        return days == 1 ? "1 day" : $"{days} days";
+    }
+
+    private async Task RestoreAsync(TrashItem item)
+    {
+        try
+        {
+            await Trash.RestoreAsync(item.Batch);
+            Snackbar.Add($"Restored “{item.Name}”", Severity.Success);
+        }
+        catch (DomainException ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+        await LoadAsync();
+    }
+
+    private async Task DeleteForeverAsync(TrashItem item)
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Delete forever",
+            $"Permanently delete “{item.Name}”{(item.IsFolder ? " and everything in it" : "")}? This can't be undone.",
+            yesText: "Delete forever", cancelText: "Cancel");
+        if (ok != true) return;
+        await Trash.DeleteForeverAsync(item.Batch);
+        await LoadAsync();
+    }
+
+    private async Task EmptyAsync()
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Empty trash", "Permanently delete everything in the Trash? This can't be undone.",
+            yesText: "Empty trash", cancelText: "Cancel");
+        if (ok != true) return;
+        await Trash.EmptyAsync();
+        await LoadAsync();
+    }
+}

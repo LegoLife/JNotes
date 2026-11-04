@@ -9,11 +9,15 @@ public sealed class JNotesDbContext(DbContextOptions<JNotesDbContext> options) :
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<Template> Templates => Set<Template>();
     public DbSet<Command> Commands => Set<Command>();
+    public DbSet<NoteVersion> NoteVersions => Set<NoteVersion>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Folder>(e =>
         {
+            // Trashed items are invisible everywhere except the Trash (which uses IgnoreQueryFilters).
+            e.HasQueryFilter(x => x.DeletedAt == null);
+            e.HasIndex(x => x.TrashBatch);
             e.Property(x => x.Name).HasMaxLength(Names.MaxLength);
             e.HasOne<Folder>().WithMany().HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Template>().WithMany().HasForeignKey(x => x.DefaultTemplateId).OnDelete(DeleteBehavior.SetNull);
@@ -35,6 +39,16 @@ public sealed class JNotesDbContext(DbContextOptions<JNotesDbContext> options) :
             e.HasOne<Folder>().WithMany().HasForeignKey(x => x.FolderId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => x.FolderId);
             e.HasIndex(x => x.UpdatedAt);
+            e.HasQueryFilter(x => x.DeletedAt == null);
+            e.HasIndex(x => x.TrashBatch);
+        });
+
+        b.Entity<NoteVersion>(e =>
+        {
+            e.Property(x => x.Title).HasMaxLength(Names.MaxLength);
+            e.Property(x => x.Reason).HasMaxLength(100);
+            e.HasOne<Note>().WithMany().HasForeignKey(x => x.NoteId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.NoteId, x.CreatedAt });
         });
     }
 

@@ -1,0 +1,91 @@
+@using Markdig
+@inject INoteHistory History
+@inject ISnackbar Snackbar
+
+<MudDialog Class="history-dialog" ContentClass="history-content">
+    <TitleContent>History · @NoteTitle</TitleContent>
+    <DialogContent>
+        @if (_versions is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_versions.Count == 0)
+        {
+            <MudText Class="pa-4">
+                No earlier versions yet. JNotes saves one before every change Claude makes, and every 10 minutes or so while you edit.
+                Versions are kept for 30 days.
+            </MudText>
+        }
+        else
+        {
+            <div class="history-layout">
+                <ul class="history-list" role="listbox" aria-label="Versions">
+                    @foreach (var v in _versions)
+                    {
+                        <li role="option" aria-selected="@(v.Id == _selected?.Id ? "true" : "false")"
+                            class="@(v.Id == _selected?.Id ? "selected" : null)" @onclick="() => SelectAsync(v)">
+                            <span class="hv-time">@v.CreatedAt.ToLocalTime().ToString("ddd d MMM, HH:mm")</span>
+                            <span class="hv-reason">@v.Reason</span>
+                        </li>
+                    }
+                </ul>
+                <div class="history-preview">
+                    @if (_selected is not null)
+                    {
+                        <div class="hp-title">@_selected.Title</div>
+                        <div class="hp-body">@_preview</div>
+                    }
+                </div>
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Close</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="_selected is null || _restoring" OnClick="RestoreAsync">
+            Restore this version
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid NoteId { get; set; }
+    [Parameter] public string NoteTitle { get; set; } = "";
+
+    private IReadOnlyList<VersionInfo>? _versions;
+    private NoteVersion? _selected;
+    private MarkupString _preview;
+    private bool _restoring;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _versions = await History.ListAsync(NoteId);
+        if (_versions.Count > 0) await SelectAsync(_versions[0]);
+    }
+
+    private async Task SelectAsync(VersionInfo v)
+    {
+        _selected = await History.GetAsync(v.Id);
+        // Raw HTML is disabled, so the preview can't run scripts from note content.
+        _preview = new MarkupString(Markdown.ToHtml(_selected?.Content ?? "", Pipeline));
+    }
+
+    private async Task RestoreAsync()
+    {
+        if (_selected is null) return;
+        _restoring = true;
+        try
+        {
+            await History.RestoreAsync(_selected.Id);
+            Snackbar.Add("Restored. The version you replaced is saved in History too.", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (DomainException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Warning);
+            _restoring = false;
+        }
+    }
+}

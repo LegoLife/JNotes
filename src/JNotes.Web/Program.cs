@@ -3,6 +3,7 @@ using JNotes.Data;
 using JNotes.Web.Ai;
 using JNotes.Web.Auth;
 using JNotes.Web.Components;
+using JNotes.Web.Maintenance;
 using JNotes.Web.Mcp;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -45,6 +46,10 @@ builder.Services.AddMudServices();
 builder.Services.AddJNotesData($"Data Source={Path.Combine(dataDir, "jnotes.db")}");
 builder.Services.AddSingleton(new AttachmentStore(Path.Combine(dataDir, "attachments")));
 builder.Services.AddSingleton<DocmostImporter>();
+builder.Services.AddSingleton(sp => new BackupService(
+    sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<JNotesDbContext>>(),
+    sp.GetRequiredService<TimeProvider>(), Path.Combine(dataDir, "backups")));
+builder.Services.AddHostedService<MaintenanceService>();
 builder.Services.AddJNotesMcp(builder.Configuration["JNotes:McpToken"]);
 
 // Inline ✨ generation via Claude Code headless (uses the Claude subscription; no API key).

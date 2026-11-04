@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject IDialogService Dialogs
+@inject JNotes.Data.BackupService Backups
 
 <MudThemeProvider @ref="_themeProvider" Theme="_theme" @bind-IsDarkMode="_dark" />
 <MudPopoverProvider />
@@ -34,6 +35,11 @@
         <MudTooltip Text="Import from Docmost">
             <MudIconButton Href="import" Icon="@Icons.Material.Outlined.FileUpload" Color="Color.Inherit" aria-label="Import from Docmost" />
         </MudTooltip>
+        <MudTooltip Text="@(_backupStale ? "Settings · backups need attention" : "Settings")">
+            <MudBadge Dot="true" Color="Color.Warning" Visible="_backupStale" Overlap="true">
+                <MudIconButton Href="settings" Icon="@Icons.Material.Outlined.Settings" Color="Color.Inherit" aria-label="Settings" />
+            </MudBadge>
+        </MudTooltip>
         <MudIconButton Icon="@(_dark ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                        Color="Color.Inherit" OnClick="() => _dark = !_dark" aria-label="Toggle dark mode" />
         <form method="post" action="logout" data-enhance="false">
@@ -60,6 +66,12 @@
     private bool _drawerOpen = true;
     private bool _dark;
     private bool _switcherOpen;
+    private bool _backupStale;
+
+    // Don't nag in the first hour after startup: the nightly job does a catch-up backup a minute after launch.
+    protected override void OnInitialized() =>
+        _backupStale = Backups.GetStatus().IsStale(DateTimeOffset.UtcNow)
+                       && DateTime.Now - System.Diagnostics.Process.GetCurrentProcess().StartTime > TimeSpan.FromHours(1);
     private IJSObjectReference? _hotkeysModule;
     private IJSObjectReference? _hotkeys;
     private DotNetObjectReference<MainLayout>? _self;

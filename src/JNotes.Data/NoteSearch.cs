@@ -36,6 +36,7 @@ public sealed class NoteSearch(IDbContextFactory<JNotesDbContext> factory) : INo
             FROM NotesFts
             JOIN Notes n ON n.Id = NotesFts.NoteId
             WHERE NotesFts MATCH {fts}
+              AND n.DeletedAt IS NULL
               AND ({folderJson} IS NULL OR n.FolderId IN (SELECT value FROM json_each({folderJson})))
             ORDER BY bm25(NotesFts, 0.0, 10.0, 1.0)
             LIMIT {limit}

@@ -71,8 +71,10 @@ user's Claude subscription — no LLM API keys.
 - **Export**: whole vault as zip (folder tree of `.md` + `attachments/`), or single note as `.md`.
 
 ## Backups
-- Nightly `VACUUM INTO` DB copy + attachments into `/data/backups`; keep last 14 locally.
-- rclone sidecar copies to Google Drive (`JNotes Backups`), pruning Drive copies older than 7 days.
+- Nightly `VACUUM INTO` DB snapshot into `/data/backups` (3am local, `JNotes:BackupHour`; catch-up run at startup if >24h old); keep last 14 locally.
+- Images are not duplicated into each backup (they're immutable): the rclone sidecar (`deploy/rclone-sync.sh`, compose profile `backup`)
+  copies DB snapshots to Drive `JNotes Backups/database` (pruning >7 days) and images to `JNotes Backups/images` (copy-only, never deleted), hourly.
+- The same nightly job purges Trash and history older than 30 days.
 - Settings shows last-backup time; warns if older than 36h.
 
 ## Build order

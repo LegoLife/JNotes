@@ -67,12 +67,18 @@ namespace JNotes.Data.Migrations
                     b.Property<Guid?>("DefaultTemplateId")
                         .HasColumnType("TEXT");
 
+                    b.Property<long?>("DeletedAt")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
                     b.Property<Guid?>("ParentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("TrashBatch")
                         .HasColumnType("TEXT");
 
                     b.Property<long>("UpdatedAt")
@@ -83,6 +89,8 @@ namespace JNotes.Data.Migrations
                     b.HasIndex("DefaultTemplateId");
 
                     b.HasIndex("ParentId");
+
+                    b.HasIndex("TrashBatch");
 
                     b.ToTable("Folders");
                 });
@@ -100,12 +108,18 @@ namespace JNotes.Data.Migrations
                     b.Property<long>("CreatedAt")
                         .HasColumnType("INTEGER");
 
+                    b.Property<long?>("DeletedAt")
+                        .HasColumnType("INTEGER");
+
                     b.Property<Guid?>("FolderId")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("TrashBatch")
                         .HasColumnType("TEXT");
 
                     b.Property<long>("UpdatedAt")
@@ -115,9 +129,44 @@ namespace JNotes.Data.Migrations
 
                     b.HasIndex("FolderId");
 
+                    b.HasIndex("TrashBatch");
+
                     b.HasIndex("UpdatedAt");
 
                     b.ToTable("Notes");
+                });
+
+            modelBuilder.Entity("JNotes.Core.NoteVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("NoteId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NoteId", "CreatedAt");
+
+                    b.ToTable("NoteVersions");
                 });
 
             modelBuilder.Entity("JNotes.Core.Template", b =>
@@ -165,6 +214,15 @@ namespace JNotes.Data.Migrations
                         .WithMany()
                         .HasForeignKey("FolderId")
                         .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("JNotes.Core.NoteVersion", b =>
+                {
+                    b.HasOne("JNotes.Core.Note", null)
+                        .WithMany()
+                        .HasForeignKey("NoteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

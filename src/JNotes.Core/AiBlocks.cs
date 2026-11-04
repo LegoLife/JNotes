@@ -27,6 +27,7 @@ public static partial class AiBlocks
 
     public static IReadOnlyList<AiRequest> FindRequests(string markdown)
     {
+        markdown = Lf(markdown);
         var fences = FencedRanges(markdown);
         var result = new List<AiRequest>();
         foreach (Match m in RequestBlock().Matches(markdown))
@@ -44,6 +45,7 @@ public static partial class AiBlocks
     /// <summary>Replaces the request block with an ai-result block. Returns (newMarkdown, resultBlock).</summary>
     public static (string Markdown, string Block) Fulfill(string markdown, string requestId, string content)
     {
+        markdown = Lf(markdown);
         var fences = FencedRanges(markdown);
         foreach (Match m in RequestBlock().Matches(markdown))
         {
@@ -62,6 +64,7 @@ public static partial class AiBlocks
     /// <summary>Replaces one request block with a plain marker, so a model can see exactly where its answer goes.</summary>
     public static string MarkRequest(string markdown, string requestId, string marker)
     {
+        markdown = Lf(markdown);
         var fences = FencedRanges(markdown);
         foreach (Match m in RequestBlock().Matches(markdown))
         {
@@ -77,7 +80,7 @@ public static partial class AiBlocks
     public static string Append(string markdown, string content)
     {
         var body = SanitizeBody(content);
-        var existing = markdown.TrimEnd();
+        var existing = Lf(markdown).TrimEnd();
         return existing.Length == 0 ? body + "\n" : existing + "\n\n" + body + "\n";
     }
 
@@ -85,6 +88,7 @@ public static partial class AiBlocks
 
     public static IReadOnlyList<Heading> Headings(string markdown)
     {
+        markdown = Lf(markdown);
         var lines = markdown.Split('\n');
         var result = new List<Heading>();
         var inFence = false;
@@ -101,6 +105,7 @@ public static partial class AiBlocks
     /// <summary>Replaces everything under <paramref name="heading"/> up to the next heading of the same or higher level.</summary>
     public static string ReplaceSection(string markdown, string heading, string content)
     {
+        markdown = Lf(markdown);
         var headings = Headings(markdown);
         var target = headings.FirstOrDefault(h => SameHeading(h.Text, heading))
                      ?? throw new DomainException(headings.Count == 0
@@ -125,6 +130,9 @@ public static partial class AiBlocks
     private static string NormalizeHeading(string s) => Whitespace().Replace(s.Trim().TrimStart('#').Trim().TrimEnd('#').Trim(), " ");
 
     // ---------- helpers ----------
+
+    /// <summary>Notes may arrive with Windows line endings (e.g. from Claude on Windows or an import); work in LF.</summary>
+    private static string Lf(string s) => s.Replace("\r\n", "\n");
 
     /// <summary>Validates generated markdown and neutralises anything that could close or forge an AI block.</summary>
     public static string SanitizeBody(string content)

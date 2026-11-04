@@ -10,6 +10,9 @@ work with over MCP. See [docs/SPEC.md](docs/SPEC.md) for the full design.
 - **Images**: paste, drag in, or use the toolbar button (PNG/JPEG/GIF/WebP, ≤20 MB). **YouTube**: paste a link, or use the toolbar button.
 - **Ask Claude inline**: in a note type `/ai ` + what you want and press Enter; the answer appears in place a few seconds later (Accept/Discard). JNotes runs Claude Code headless with your Claude subscription — no API key. In Docker, set `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`).
 - **Claude** (✨ in the app bar): a "Test it" button for inline answers, Claude Desktop connection instructions, and your editable commands for bigger jobs in Claude Desktop.
+- **History** (clock icon on a note): earlier versions — saved before every Claude edit and every ~10 minutes while you type, kept 30 days — with one-click restore.
+- **Trash** (sidebar): deleting is undoable; items are kept 30 days.
+- **Backups** (Settings): nightly database snapshot at 3am (last 14 kept in `/data/backups`). Optional hourly copy to Google Drive via the `rclone` service — setup steps are on the Settings page; start it with `docker compose --profile backup up -d`.
 - **Import from Docmost** (app bar): upload a space export (Markdown + attachments). Any content that couldn't be converted is listed after the import.
 
 ## Develop

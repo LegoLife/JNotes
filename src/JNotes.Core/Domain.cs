@@ -11,6 +11,10 @@ public sealed class Folder
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>Set when moved to Trash. Items trashed together share a <see cref="TrashBatch"/>.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? TrashBatch { get; set; }
 }
 
 public sealed class Note
@@ -24,6 +28,22 @@ public sealed class Note
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>Set when moved to Trash. Items trashed together share a <see cref="TrashBatch"/>.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? TrashBatch { get; set; }
+}
+
+/// <summary>A saved earlier state of a note.</summary>
+public sealed class NoteVersion
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid NoteId { get; set; }
+    public required string Title { get; set; }
+    public string Content { get; set; } = "";
+    /// <summary>Why it was saved, e.g. "Before Claude: fill request", "While editing", "Before restore".</summary>
+    public required string Reason { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 /// <summary>A reusable markdown skeleton. Supports {{title}}, {{date}} and {{folder}}.</summary>

@@ -8,3 +8,4 @@ src/JNotes.Web/wwwroot/js/
 tests/
 .git/
 .env
+rclone/

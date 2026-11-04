@@ -9,3 +9,5 @@ src/JNotes.Web/wwwroot/js/
 # Local dev database / keys
 src/JNotes.Web/data/
 .env
+# rclone config holds the Google Drive token
+rclone/

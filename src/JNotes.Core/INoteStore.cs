@@ -9,8 +9,8 @@ public interface INoteStore
     Task SetDefaultTemplateAsync(Guid folderId, Guid? templateId, CancellationToken ct = default);
     Task RenameFolderAsync(Guid id, string name, CancellationToken ct = default);
     Task MoveFolderAsync(Guid id, Guid? newParentId, CancellationToken ct = default);
-    /// <summary>Deletes the folder and everything under it.</summary>
-    Task DeleteFolderAsync(Guid id, CancellationToken ct = default);
+    /// <summary>Moves the folder and everything under it to Trash. Returns the trash batch (for Undo).</summary>
+    Task<Guid> DeleteFolderAsync(Guid id, CancellationToken ct = default);
 
     Task<Note?> GetNoteAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<Note>> GetRecentNotesAsync(int take, CancellationToken ct = default);
@@ -20,7 +20,11 @@ public interface INoteStore
     Task RenameNoteAsync(Guid id, string title, CancellationToken ct = default);
     Task MoveNoteAsync(Guid id, Guid? folderId, CancellationToken ct = default);
     Task SaveContentAsync(Guid id, string markdown, CancellationToken ct = default);
-    Task DeleteNoteAsync(Guid id, CancellationToken ct = default);
+    /// <summary>Moves the note to Trash. Returns the trash batch (for Undo).</summary>
+    Task<Guid> DeleteNoteAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Lets the store tell other parts of the app that the tree changed (e.g. after a Trash restore).</summary>
+    void NotifyTreeChanged();
 
     /// <summary>Raised after any change to the folder/note tree (not content saves).</summary>
     event Action? TreeChanged;
