@@ -11,6 +11,9 @@ public static class DataServiceExtensions
         services.AddDbContextFactory<JNotesDbContext>(o => o.UseSqlite(connectionString));
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<INoteStore, NoteStore>();
+        services.AddSingleton<ITemplateStore, TemplateStore>();
+        services.AddSingleton<INoteSearch, NoteSearch>();
+        services.AddSingleton<NoteFactory>();
         return services;
     }
 

@@ -1,0 +1,82 @@
+@page "/templates"
+@inject ITemplateStore Templates
+@inject IDialogService Dialogs
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<PageTitle>Templates · JNotes</PageTitle>
+
+<div class="home-header">
+    <MudText Typo="Typo.h5">Templates</MudText>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="CreateAsync">New template</MudButton>
+</div>
+
+<MudText Typo="Typo.body2" Class="mb-4 text-secondary">
+    Templates pre-fill new notes. Use
+    @foreach (var (name, description) in TemplateRenderer.Variables)
+    {
+        <code title="@description">@name</code> @(" ")
+    }
+    as placeholders. Set a folder's default template from its menu in the sidebar.
+</MudText>
+
+@if (_templates is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_templates.Count == 0)
+{
+    <MudText>No templates yet.</MudText>
+}
+else
+{
+    <ul class="recent-list">
+        @foreach (var t in _templates)
+        {
+            <li class="template-row">
+                <a href="@($"templates/{t.Id}")">
+                    <span class="recent-title">@t.Name</span>
+                    <span class="recent-date">@Preview(t.Content)</span>
+                </a>
+                <MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" aria-label="@($"Delete {t.Name}")"
+                               OnClick="() => DeleteAsync(t)" />
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private IReadOnlyList<Template>? _templates;
+
+    protected override async Task OnInitializedAsync() => _templates = await Templates.ListAsync();
+
+    private static string Preview(string content)
+    {
+        var flat = Search.CleanSnippet(content);
+        return flat.Length > 60 ? flat[..60] + "…" : flat;
+    }
+
+    private async Task CreateAsync()
+    {
+        var dialog = await Dialogs.ShowAsync<NameDialog>(null, new DialogParameters<NameDialog>
+        {
+            { x => x.Title, "New template" }, { x => x.Label, "Template name" }, { x => x.ConfirmText, "Create" },
+        }, new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        if (await dialog.Result is not { Canceled: false, Data: string name }) return;
+        try
+        {
+            var t = await Templates.CreateAsync(name);
+            Nav.NavigateTo($"templates/{t.Id}");
+        }
+        catch (DomainException ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+    }
+
+    private async Task DeleteAsync(Template t)
+    {
+        var ok = await Dialogs.ShowMessageBoxAsync("Delete template",
+            $"Delete “{t.Name}”? Notes already created from it are not affected.", yesText: "Delete", cancelText: "Cancel");
+        if (ok != true) return;
+        await Templates.DeleteAsync(t.Id);
+        _templates = await Templates.ListAsync();
+    }
+}

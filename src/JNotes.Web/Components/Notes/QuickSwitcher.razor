@@ -1,0 +1,106 @@
+@inject INoteStore Store
+@inject NavigationManager Nav
+
+<MudDialog Class="quick-switcher" ContentClass="qs-content">
+    <DialogContent>
+        <MudTextField @ref="_input" T="string" Value="_text" ValueChanged="Filter" Immediate="true" AutoFocus="true"
+                      Placeholder="Jump to a note…" Variant="Variant.Outlined" OnKeyDown="KeyDown"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+        <div class="qs-list" role="listbox">
+            @if (string.IsNullOrWhiteSpace(_text) && _items.Count > 0)
+            {
+                <div class="qs-heading">Recent</div>
+            }
+            @for (var i = 0; i < _items.Count; i++)
+            {
+                var index = i;
+                var item = _items[i];
+                <div class="qs-item @(index == _selected ? "selected" : null)" role="option" aria-selected="@(index == _selected ? "true" : "false")"
+                     @onclick="() => Open(index)" @onmouseenter="() => _selected = index">
+                    <MudIcon Icon="@(item.NoteId is null ? Icons.Material.Filled.Search : Icons.Material.Outlined.Description)" Size="Size.Small" />
+                    <span class="qs-title">@item.Title</span>
+                    <span class="qs-path">@item.Path</span>
+                </div>
+            }
+            @if (_items.Count == 0)
+            {
+                <div class="qs-empty">No notes yet.</div>
+            }
+        </div>
+        <div class="qs-help"><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close</div>
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private sealed record Item(Guid? NoteId, string Title, string Path);
+
+    private MudTextField<string>? _input;
+    private string _text = "";
+    private int _selected;
+
+    // AutoFocus alone is unreliable inside an animating dialog; focus explicitly once rendered.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _input is not null) await _input.FocusAsync();
+    }
+    private List<Item> _items = [];
+    private List<Item> _allNotes = [];
+    private List<Item> _recent = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var index = new NoteTreeIndex(await Store.GetTreeAsync());
+        string PathOf(Guid? f) => f is { } id && index.Find(id) is not null ? index.PathOf(id) : "";
+
+        _allNotes = (await Store.GetTreeAsync()).Where(e => !e.IsFolder)
+            .Select(e => new Item(e.Id, e.Name, PathOf(e.ParentId))).ToList();
+        _recent = (await Store.GetRecentNotesAsync(8)).Select(n => new Item(n.Id, n.Title, PathOf(n.FolderId))).ToList();
+        _items = _recent;
+    }
+
+    private void Filter(string? value)
+    {
+        _text = value ?? "";
+        _selected = 0;
+        var q = _text.Trim();
+        if (q.Length == 0) { _items = _recent; return; }
+
+        // Rank: title starts with query, then a word in the title starts with it, then contains it.
+        _items = _allNotes
+            .Select(n => (n, rank: Rank(n.Title, q)))
+            .Where(x => x.rank < 3)
+            .OrderBy(x => x.rank).ThenBy(x => x.n.Title.Length).ThenBy(x => x.n.Title, StringComparer.CurrentCultureIgnoreCase)
+            .Take(12).Select(x => x.n).ToList();
+        _items.Add(new Item(null, $"Search all notes for “{q}”", ""));
+    }
+
+    private static int Rank(string title, string q)
+    {
+        if (title.StartsWith(q, StringComparison.CurrentCultureIgnoreCase)) return 0;
+        var i = title.IndexOf(q, StringComparison.CurrentCultureIgnoreCase);
+        if (i < 0) return 3;
+        return char.IsLetterOrDigit(title[i - 1]) ? 2 : 1;
+    }
+
+    private void KeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowDown" when _items.Count > 0: _selected = (_selected + 1) % _items.Count; break;
+            case "ArrowUp" when _items.Count > 0: _selected = (_selected - 1 + _items.Count) % _items.Count; break;
+            case "Enter": Open(_selected); break;
+        }
+    }
+
+    private void Open(int index)
+    {
+        if (index < 0 || index >= _items.Count) return;
+        var item = _items[index];
+        MudDialog.Close();
+        Nav.NavigateTo(item.NoteId is { } id
+            ? $"notes/{id}"
+            : Nav.GetUriWithQueryParameters("search", new Dictionary<string, object?> { ["q"] = _text.Trim() }));
+    }
+}

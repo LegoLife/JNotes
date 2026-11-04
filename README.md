@@ -3,6 +3,13 @@
 Self-hosted, single-user notes app (Blazor Server + Tiptap + SQLite) that Claude Desktop can
 work with over MCP. See [docs/SPEC.md](docs/SPEC.md) for the full design.
 
+## Using it
+
+- **Ctrl+K**: jump to a note by title. The search icon opens full-text search (every word must match as a word start; use `"quotes"` for exact phrases).
+- **Templates** (app bar): use `{{title}}`, `{{date}}` and `{{folder}}`. Set a folder's default template from its "…" menu.
+- **Images**: paste, drag in, or use the toolbar button (PNG/JPEG/GIF/WebP, ≤20 MB). **YouTube**: paste a link, or use the toolbar button.
+- **Import from Docmost** (app bar): upload a space export (Markdown + attachments). Any content that couldn't be converted is listed after the import.
+
 ## Develop
 
 Requires .NET 10 SDK and Node 20+.

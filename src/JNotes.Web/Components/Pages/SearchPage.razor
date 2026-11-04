@@ -1,0 +1,122 @@
+@page "/search"
+@inject INoteSearch SearchService
+@inject INoteStore Store
+@inject NavigationManager Nav
+
+<PageTitle>Search · JNotes</PageTitle>
+
+<div class="search-bar">
+    <MudTextField T="string" Value="_query" ValueChanged="OnQueryChanged" DebounceInterval="250" Immediate="true"
+                  Placeholder="Search all notes…" Variant="Variant.Outlined" AutoFocus="true" Clearable="true"
+                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="search-input" />
+    <MudSelect T="Guid" Value="_folder" ValueChanged="OnFolderChanged" Label="In" Variant="Variant.Outlined"
+               Dense="true" Class="search-folder" AnchorOrigin="Origin.BottomCenter">
+        <MudSelectItem T="Guid" Value="Guid.Empty">All notes</MudSelectItem>
+        @foreach (var (id, path) in _folders)
+        {
+            <MudSelectItem T="Guid" Value="id">@path</MudSelectItem>
+        }
+    </MudSelect>
+</div>
+
+@if (_searching)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_hits is null)
+{
+    <MudText Typo="Typo.body2" Class="search-hint">
+        Every word must appear (word starts are enough: <code>arrak</code> finds “Arrakis”).
+        Use <code>"quotes"</code> for an exact phrase.
+    </MudText>
+}
+else if (_hits.Count == 0)
+{
+    <MudText Typo="Typo.body1" Class="search-hint">No notes match “@_query”.</MudText>
+}
+else
+{
+    <MudText Typo="Typo.caption" Class="search-count">@_hits.Count result@(_hits.Count == 1 ? "" : "s")@(_hits.Count == Limit ? " (showing the best matches)" : "")</MudText>
+    <ul class="search-results">
+        @foreach (var hit in _hits)
+        {
+            <li>
+                <a href="@($"notes/{hit.NoteId}")">
+                    <span class="sr-title">@hit.Title</span>
+                    <span class="sr-meta">@(PathOf(hit.FolderId)) · @hit.UpdatedAt.ToLocalTime().ToString("d MMM yyyy")</span>
+                    <span class="sr-snippet">
+                        @foreach (var (text, highlighted) in Search.SplitHighlights(Search.CleanSnippet(hit.Snippet)))
+                        {
+                            if (highlighted) { <mark>@text</mark> } else { @text }
+                        }
+                    </span>
+                </a>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private const int Limit = 100;
+
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+    [SupplyParameterFromQuery(Name = "folder")] public Guid? FolderParam { get; set; }
+
+    private string _query = "";
+    private Guid _folder = Guid.Empty;
+    private IReadOnlyList<(Guid Id, string Path)> _folders = [];
+    private NoteTreeIndex _index = new([]);
+    private IReadOnlyList<SearchHit>? _hits;
+    private bool _searching;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _index = new NoteTreeIndex(await Store.GetTreeAsync());
+        _folders = _index.MoveDestinationsFor(new TreeEntry(Guid.Empty, "", null, false));
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var q = Q ?? "";
+        var folder = FolderParam ?? Guid.Empty;
+        if (q == _query && folder == _folder && _hits is not null) return;
+        _query = q;
+        _folder = folder;
+        await RunAsync();
+    }
+
+    private Task OnQueryChanged(string? value)
+    {
+        _query = value ?? "";
+        return UpdateUrlAndRunAsync();
+    }
+
+    private Task OnFolderChanged(Guid value)
+    {
+        _folder = value;
+        return UpdateUrlAndRunAsync();
+    }
+
+    private async Task UpdateUrlAndRunAsync()
+    {
+        // Keep the URL shareable/bookmarkable without adding history entries per keystroke.
+        Nav.NavigateTo(Nav.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+            ["q"] = string.IsNullOrWhiteSpace(_query) ? null : _query,
+            ["folder"] = _folder == Guid.Empty ? null : _folder,
+        }), replace: true);
+        await RunAsync();
+    }
+
+    private async Task RunAsync()
+    {
+        if (Search.BuildFtsQuery(_query) is null) { _hits = null; return; }
+        _searching = true;
+        StateHasChanged();
+        _hits = await SearchService.SearchAsync(_query, _folder == Guid.Empty ? null : _folder, Limit);
+        _searching = false;
+    }
+
+    private string PathOf(Guid? folderId) =>
+        folderId is { } f && _index.Find(f) is not null ? _index.PathOf(f) : "Top level";
+}

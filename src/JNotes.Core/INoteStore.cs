@@ -4,7 +4,9 @@ public interface INoteStore
 {
     Task<IReadOnlyList<TreeEntry>> GetTreeAsync(CancellationToken ct = default);
 
+    Task<Folder?> GetFolderAsync(Guid id, CancellationToken ct = default);
     Task<Folder> CreateFolderAsync(string name, Guid? parentId, CancellationToken ct = default);
+    Task SetDefaultTemplateAsync(Guid folderId, Guid? templateId, CancellationToken ct = default);
     Task RenameFolderAsync(Guid id, string name, CancellationToken ct = default);
     Task MoveFolderAsync(Guid id, Guid? newParentId, CancellationToken ct = default);
     /// <summary>Deletes the folder and everything under it.</summary>
