@@ -46,6 +46,7 @@ builder.Services.AddMudServices();
 builder.Services.AddJNotesData($"Data Source={Path.Combine(dataDir, "jnotes.db")}");
 builder.Services.AddSingleton(new AttachmentStore(Path.Combine(dataDir, "attachments")));
 builder.Services.AddSingleton<DocmostImporter>();
+builder.Services.AddSingleton<Exporter>();
 builder.Services.AddSingleton(sp => new BackupService(
     sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<JNotesDbContext>>(),
     sp.GetRequiredService<TimeProvider>(), Path.Combine(dataDir, "backups")));
@@ -87,6 +88,10 @@ var app = builder.Build();
 
 await app.Services.MigrateJNotesDatabaseAsync();
 
+// One-off migration from Docmost's database (see DocmostDbImportCommand); runs without starting the web server.
+if (args is ["import-docmost-db", var importDir, .. var importOptions])
+    return await JNotes.Web.Cli.DocmostDbImportCommand.RunAsync(app.Services, importDir, importOptions.Contains("--dry-run"));
+
 app.UseForwardedHeaders();
 if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
@@ -124,6 +129,27 @@ attachmentsApi.MapGet("{name}", (string name, AttachmentStore store, HttpRespons
     response.Headers.CacheControl = "private, max-age=31536000, immutable"; // names are unique per upload
     response.Headers.XContentTypeOptions = "nosniff";
     return Results.File(path, AttachmentStore.ContentTypeFor(name), enableRangeProcessing: true);
+});
+
+// Export: whole vault as a zip, or one note as .md (.zip when it has images).
+var exportApi = app.MapGroup("/export").RequireAuthorization();
+exportApi.MapGet("vault", async (Exporter exporter, CancellationToken ct) =>
+{
+    // ZipArchive writes synchronously when it finishes, so build it in a temp file and stream that.
+    var temp = Path.Combine(Path.GetTempPath(), $"jnotes-export-{Guid.NewGuid():N}.zip");
+    await using (var fs = File.Create(temp))
+        await exporter.WriteVaultAsync(fs, ct);
+    var stream = new FileStream(temp, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.DeleteOnClose | FileOptions.Asynchronous);
+    return Results.File(stream, "application/zip", $"JNotes-export-{DateTime.Now:yyyy-MM-dd}.zip");
+});
+exportApi.MapGet("notes/{id:guid}", async (Guid id, Exporter exporter, CancellationToken ct) =>
+{
+    try
+    {
+        var file = await exporter.ExportNoteAsync(id, ct);
+        return Results.File(file.Data, file.ContentType, file.FileName);
+    }
+    catch (DomainException) { return Results.NotFound(); }
 });
 
 app.MapMcp("/mcp");

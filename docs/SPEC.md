@@ -68,7 +68,10 @@ user's Claude subscription — no LLM API keys.
 ## Import / export
 - **Docmost import**: upload Docmost's Markdown zip export, pick a target folder. Pages with
   children become folders (`Dune/Dune.md`); images imported to attachments; report of anything unconverted.
-- **Export**: whole vault as zip (folder tree of `.md` + `attachments/`), or single note as `.md`.
+- **Export**: whole vault as zip (folder tree of `.md` + `attachments/`), or single note as `.md` (a `.zip` when it has images).
+  Each file starts with `# Title`; image and note links are relative, so an export re-imports through the Docmost importer.
+- Import converts Docmost callouts (`:::info … :::`) to labelled blockquotes and toggles (`<details>`) to a bold title + content;
+  math (`$$`) stays as text with a warning.
 
 ## Backups
 - Nightly `VACUUM INTO` DB snapshot into `/data/backups` (3am local, `JNotes:BackupHour`; catch-up run at startup if >24h old); keep last 14 locally.

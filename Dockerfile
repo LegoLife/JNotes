@@ -30,7 +30,10 @@ COPY src/JNotes.Web/JNotes.Web.csproj src/JNotes.Web/
 RUN dotnet restore src/JNotes.Web/JNotes.Web.csproj -a $TARGETARCH
 COPY src/ src/
 COPY --from=editor /build/wwwroot/js/ src/JNotes.Web/wwwroot/js/
-RUN dotnet publish src/JNotes.Web/JNotes.Web.csproj -c Release -a $TARGETARCH --no-restore -o /app
+# No --no-restore: the SDK only adds Blazor's framework assets (blazor.web.js) when it can see the .razor
+# sources, which the csproj-only restore above can't — that restore is just to warm the package cache.
+RUN dotnet publish src/JNotes.Web/JNotes.Web.csproj -c Release -a $TARGETARCH -o /app \
+ && ls /app/wwwroot/_framework/blazor.web*.js > /dev/null
 
 # ---- 4. Runtime ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0

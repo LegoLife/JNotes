@@ -13,6 +13,7 @@ work with over MCP. See [docs/SPEC.md](docs/SPEC.md) for the full design.
 - **History** (clock icon on a note): earlier versions — saved before every Claude edit and every ~10 minutes while you type, kept 30 days — with one-click restore.
 - **Trash** (sidebar): deleting is undoable; items are kept 30 days.
 - **Backups** (Settings): nightly database snapshot at 3am (last 14 kept in `/data/backups`). Optional hourly copy to Google Drive via the `rclone` service — setup steps are on the Settings page; start it with `docker compose --profile backup up -d`.
+- **Export**: Settings → *Download all notes* gives a zip of Markdown files in their folders with images (opens in Obsidian/VS Code, and re-imports into JNotes). Each note also has a download button.
 - **Import from Docmost** (app bar): upload a space export (Markdown + attachments). Any content that couldn't be converted is listed after the import.
 
 ## Develop

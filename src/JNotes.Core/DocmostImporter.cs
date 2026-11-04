@@ -21,6 +21,7 @@ public sealed partial class DocmostImporter(INoteStore notes, AttachmentStore at
         var run = new Run(zip);
         await ImportDirectoryAsync(run, "", targetFolderId, ct);
         await RewriteInternalLinksAsync(run, ct);
+        await ApplyOriginalDatesAsync(run, ct);
         return new ImportReport(run.FolderCount, run.Created.Count, run.ImageCache.Count, run.Warnings);
     }
 
@@ -89,6 +90,8 @@ public sealed partial class DocmostImporter(INoteStore notes, AttachmentStore at
         var html = HtmlOutsideCode(content);
         if (html.Count > 0)
             run.Warnings.Add($"“{title}”: contains HTML ({string.Join(", ", html.Distinct().Select(t => $"<{t}>"))}) that may not display or survive editing.");
+        if (content.Contains("$$"))
+            run.Warnings.Add($"“{title}”: contains math formulas, which are shown as plain text.");
     }
 
     private async Task<(string Title, string Content)> ReadPageAsync(Run run, string page, CancellationToken ct)
@@ -110,6 +113,8 @@ public sealed partial class DocmostImporter(INoteStore notes, AttachmentStore at
 
         var dir = ParentDir(page);
         text = ConvertYouTube(text);
+        text = ConvertCallouts(text);
+        text = ConvertDetails(text);
         text = HtmlImage().Replace(text, m => $"![{m.Groups["alt"].Value}]({m.Groups["src"].Value})");
         text = await ReplaceAsync(MarkdownImage(), text, m => ImportImageAsync(run, dir, m, title, ct));
         text = await ReplaceAsync(MarkdownLink(), text, m => RewriteAttachmentLinkAsync(run, dir, m, title, ct));
@@ -187,6 +192,32 @@ public sealed partial class DocmostImporter(INoteStore notes, AttachmentStore at
         }
     }
 
+    // Pass 3: keep each page's original created/updated dates from docmost-metadata.json, when present.
+    private async Task ApplyOriginalDatesAsync(Run run, CancellationToken ct)
+    {
+        if (!run.Files.TryGetValue("docmost-metadata.json", out var entry)) return;
+        try
+        {
+            await using var s = await entry.OpenAsync(ct);
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(s, cancellationToken: ct);
+            if (!doc.RootElement.TryGetProperty("pages", out var pages) || pages.ValueKind != System.Text.Json.JsonValueKind.Object) return;
+            var dates = new Dictionary<string, (DateTimeOffset Created, DateTimeOffset Updated)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in pages.EnumerateObject())
+            {
+                if (!p.Value.TryGetProperty("createdAt", out var c) || !c.TryGetDateTimeOffset(out var created)) continue;
+                var updated = p.Value.TryGetProperty("updatedAt", out var u) && u.TryGetDateTimeOffset(out var up) ? up : created;
+                dates[p.Name] = (created, updated);
+                try { dates.TryAdd(Uri.UnescapeDataString(p.Name), (created, updated)); } catch (UriFormatException) { }
+            }
+            foreach (var (noteId, page, _) in run.Created)
+                if (dates.TryGetValue(page, out var d)) await notes.SetTimestampsAsync(noteId, d.Created, d.Updated, ct);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            run.Warnings.Add("docmost-metadata.json couldn't be read, so original dates weren't kept.");
+        }
+    }
+
     // ---------- YouTube ----------
 
     /// <summary>Turns iframes / Docmost embed HTML / link-only lines pointing at YouTube into a bare URL line (our embed syntax).</summary>
@@ -204,6 +235,38 @@ public sealed partial class DocmostImporter(INoteStore notes, AttachmentStore at
             if (id.Success) lines[i] = $"https://www.youtube.com/watch?v={id.Groups[1].Value}";
         }
         return string.Join('\n', lines);
+    }
+
+    // ---------- Docmost callouts & toggles ----------
+
+    /// <summary>Docmost callouts (<c>:::info … :::</c>) become a quote with a labelled first line, which the editor can show and keep.</summary>
+    public static string ConvertCallouts(string markdown) =>
+        CalloutBlock().Replace(markdown, m =>
+        {
+            var type = m.Groups["type"].Value.ToLowerInvariant();
+            var (emoji, label) = type switch
+            {
+                "info" => ("ℹ️", "Info"),
+                "warning" => ("⚠️", "Warning"),
+                "danger" or "error" => ("⛔", "Important"),
+                "success" => ("✅", "Success"),
+                "note" => ("📝", "Note"),
+                _ => ("💡", char.ToUpperInvariant(type[0]) + type[1..]),
+            };
+            var lines = m.Groups["body"].Value.Trim('\n').Split('\n').Select(l => l.Length == 0 ? ">" : "> " + l);
+            return $"> **{emoji} {label}**\n>\n{string.Join('\n', lines)}";
+        });
+
+    /// <summary>Docmost toggles (<c>&lt;details&gt;</c>) become a bold title followed by their content (innermost first).</summary>
+    public static string ConvertDetails(string markdown)
+    {
+        string previous;
+        do
+        {
+            previous = markdown;
+            markdown = DetailsBlock().Replace(markdown, m => $"**▸ {m.Groups["summary"].Value.Trim()}**\n\n{m.Groups["body"].Value.Trim()}\n");
+        } while (markdown != previous);
+        return markdown;
     }
 
     // ---------- helpers ----------
@@ -284,4 +347,6 @@ public sealed partial class DocmostImporter(INoteStore notes, AttachmentStore at
     [GeneratedRegex(@"(?:youtube(?:-nocookie)?\.com/(?:watch\?(?:[^""'\s)]*&)?v=|embed/|shorts/|live/|v/)|youtu\.be/)([\w-]{6,})", RegexOptions.IgnoreCase)] private static partial Regex YouTubeId();
     [GeneratedRegex(@"<(iframe|div|span|table|details|summary|video|audio|figure|p|br|u|mark|sub|sup)\b", RegexOptions.IgnoreCase)] private static partial Regex HtmlTag();
     [GeneratedRegex(@"`[^`]*`")] private static partial Regex InlineCode();
+    [GeneratedRegex(@"^:::(?<type>[A-Za-z]+)[ \t]*\n(?<body>[\s\S]*?)\n:::[ \t]*$", RegexOptions.Multiline)] private static partial Regex CalloutBlock();
+    [GeneratedRegex(@"<details\b[^>]*>\s*<summary>(?<summary>(?:(?!</summary>|<details\b)[\s\S])*)</summary>(?<body>(?:(?!<details\b)[\s\S])*?)</details>", RegexOptions.IgnoreCase)] private static partial Regex DetailsBlock();
 }
