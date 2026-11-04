@@ -119,6 +119,69 @@ html, body { margin: 0; }
 .editor-host .ProseMirror ul[data-type="taskList"] li > div { flex: 1; }
 .editor-host .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div { text-decoration: line-through; opacity: .6; }
 
+/* ---------- ✨ AI blocks ---------- */
+.editor-host .ProseMirror .ai-request {
+    position: relative; margin: 1em 0; padding: 10px 12px 10px 12px; border-radius: 8px;
+    border: 1px dashed var(--mud-palette-primary);
+    background: color-mix(in srgb, var(--mud-palette-primary) 8%, transparent);
+}
+.editor-host .ProseMirror .ai-request::before {
+    content: "✨ Ask Claude · press Enter to generate";
+    display: block; font-size: .72rem; font-weight: 600; letter-spacing: .02em; margin-bottom: 4px;
+    color: var(--mud-palette-primary); user-select: none;
+}
+.editor-host .ProseMirror .ai-request[data-status="generating"] {
+    border-style: solid; animation: ai-pulse 1.4s ease-in-out infinite;
+}
+.editor-host .ProseMirror .ai-request[data-status="generating"]::before { content: "✨ Claude is writing…"; }
+.editor-host .ProseMirror .ai-request[data-status="failed"] { border-color: var(--mud-palette-error); }
+.editor-host .ProseMirror .ai-request[data-status="failed"]::before {
+    content: "✨ Couldn't generate · press Enter in this box to try again"; color: var(--mud-palette-error);
+}
+@keyframes ai-pulse {
+    0%, 100% { background: color-mix(in srgb, var(--mud-palette-primary) 6%, transparent); }
+    50% { background: color-mix(in srgb, var(--mud-palette-primary) 16%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .editor-host .ProseMirror .ai-request[data-status="generating"] { animation: none; }
+}
+.editor-host .ProseMirror .ai-request.is-empty::after,
+.editor-host .ProseMirror .ai-request .is-empty::before { color: var(--mud-palette-text-disabled); }
+.editor-host .ProseMirror .ai-request.is-empty::after {
+    content: attr(data-placeholder); pointer-events: none; position: absolute; left: 12px; bottom: 10px;
+}
+.editor-host .ProseMirror .ai-result {
+    margin: 1em 0; border-radius: 8px; border-left: 3px solid var(--mud-palette-primary);
+    background: color-mix(in srgb, var(--mud-palette-primary) 6%, transparent);
+}
+.ai-result-header {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: .78rem; user-select: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--mud-palette-primary) 20%, transparent);
+}
+.ai-badge { font-weight: 600; color: var(--mud-palette-primary); white-space: nowrap; }
+.ai-prompt { flex: 1; min-width: 0; color: var(--mud-palette-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-result-header button {
+    font: inherit; font-weight: 600; padding: 3px 10px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--mud-palette-lines-default); background: var(--mud-palette-surface); color: var(--mud-palette-text-primary);
+}
+.ai-result-header .ai-accept { background: var(--mud-palette-primary); border-color: var(--mud-palette-primary); color: var(--mud-palette-primary-text); }
+.ai-result-header button:hover { filter: brightness(1.1); }
+.ai-result-body { padding: 4px 14px 10px; }
+
+/* ---------- Claude page ---------- */
+.claude-howto, .claude-steps { padding-left: 1.3em; margin: 0 0 8px; }
+.claude-howto li, .claude-steps li { margin: 6px 0; line-height: 1.55; }
+.config-box { border: 1px solid var(--mud-palette-lines-default); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+.config-box pre { margin: 0; padding: 12px 14px; overflow-x: auto; font-size: .8rem; background: var(--mud-palette-action-default-hover); }
+.config-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 6px 8px; }
+.arg-chip {
+    display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 10px; font-size: .72rem; font-weight: 600;
+    background: var(--mud-palette-primary-hover); color: var(--mud-palette-primary); vertical-align: middle;
+}
+.command-body textarea { font-family: ui-monospace, Consolas, monospace; font-size: .88rem; }
+.ground-rules { white-space: pre-wrap; font-size: .82rem; margin: 0; color: var(--mud-palette-text-secondary); }
+.command-actions { display: flex; justify-content: space-between; }
+
 /* ---------- App bar search launcher ---------- */
 .search-launcher {
     margin-left: 24px; display: flex; align-items: center; gap: 8px; min-width: 240px;

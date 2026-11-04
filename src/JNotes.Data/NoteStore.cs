@@ -98,6 +98,12 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
         return await db.Notes.AsNoTracking().OrderByDescending(n => n.UpdatedAt).Take(take).ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<Note>> FindNotesContainingAsync(string text, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        return await db.Notes.AsNoTracking().Where(n => n.Content.Contains(text)).ToListAsync(ct);
+    }
+
     public async Task<Note> CreateNoteAsync(string title, Guid? folderId, string content = "", CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);

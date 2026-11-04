@@ -24,6 +24,9 @@ public sealed class TestDb : IAsyncDisposable
     public ITemplateStore Templates => _services.GetRequiredService<ITemplateStore>();
     public INoteSearch Search => _services.GetRequiredService<INoteSearch>();
     public NoteFactory Factory => _services.GetRequiredService<NoteFactory>();
+    public NoteOperations Ops => _services.GetRequiredService<NoteOperations>();
+    public NoteEvents Events => _services.GetRequiredService<NoteEvents>();
+    public ICommandStore Commands => _services.GetRequiredService<ICommandStore>();
 
     public static async Task<TestDb> CreateAsync()
     {

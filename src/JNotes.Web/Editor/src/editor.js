@@ -1,6 +1,6 @@
 // Thin Tiptap wrapper used by MarkdownEditor.razor via JS interop.
 // Markdown is the source of truth: content goes in as markdown and comes back out as markdown.
-import { Editor } from '@tiptap/core';
+import { Editor, Node, mergeAttributes, textblockTypeInputRule } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { Placeholder } from '@tiptap/extensions';
@@ -34,6 +34,215 @@ const YouTubeEmbed = Youtube.extend({
   renderMarkdown: (node) => node.attrs.src,
 }).configure({ nocookie: true, width: 640, height: 360 });
 
+// ---------- ✨ AI blocks ----------
+// Same syntax as JNotes.Core/AiBlocks.cs:
+//   :::ai-request{id="k3f9a2"}\nprompt\n:::        (pending, typed with /ai)
+//   :::ai-result{id="k3f9a2" prompt="…"}\n…\n:::   (filled in by Claude, Accept/Discard)
+const AI_BLOCK = /^:::ai-(request|result)\{([^}\n]*)\}[ \t]*\n([\s\S]*?)\n:::[ \t]*(?:\n|$)/;
+const AI_BLOCK_START = /(^|\n):::ai-(?:request|result)\{/;
+const escapeAttr = (s) => String(s ?? '').replace(/\n/g, ' ').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+const unescapeAttr = (s) => s.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+const parseAttrs = (s) => Object.fromEntries([...s.matchAll(/(\w+)="([^"]*)"/g)].map((m) => [m[1], unescapeAttr(m[2])]));
+const newRequestId = () => Math.random().toString(36).slice(2, 8);
+
+function aiTokenizer(kind) {
+  return {
+    name: `ai-${kind}`,
+    level: 'block',
+    start: (src) => {
+      const m = AI_BLOCK_START.exec(src);
+      return m ? m.index + m[1].length : -1;
+    },
+    tokenize: (src, _tokens, lexer) => {
+      const m = AI_BLOCK.exec(src);
+      if (!m || m[1] !== kind) return undefined;
+      const body = m[3];
+      return {
+        type: `ai-${kind}`, raw: m[0], attrs: parseAttrs(m[2]), text: body,
+        tokens: kind === 'request' ? lexer.inlineTokens(body.trim()) : lexer.blockTokens(body),
+      };
+    },
+  };
+}
+
+const AiRequest = Node.create({
+  name: 'aiRequest',
+  group: 'block',
+  content: 'inline*',
+  defining: true,
+  addOptions: () => ({ onGenerate: null }),
+  addAttributes: () => ({
+    id: { default: null, parseHTML: (el) => el.getAttribute('data-id') },
+    // UI-only state ('generating' | 'failed'); never written to markdown.
+    status: { default: null, rendered: false, keepOnSplit: false },
+  }),
+  parseHTML: () => [{ tag: 'div[data-ai-request]' }],
+  renderHTML: ({ node, HTMLAttributes }) =>
+    ['div', mergeAttributes(HTMLAttributes, {
+      'data-ai-request': '', 'data-id': node.attrs.id, class: 'ai-request',
+      ...(node.attrs.status ? { 'data-status': node.attrs.status } : {}),
+    }), 0],
+  markdownTokenName: 'ai-request',
+  markdownTokenizer: aiTokenizer('request'),
+  parseMarkdown: (token, h) => ({ type: 'aiRequest', attrs: { id: token.attrs.id ?? newRequestId() }, content: h.parseInline(token.tokens) }),
+  renderMarkdown: (node, h) => `:::ai-request{id="${escapeAttr(node.attrs.id)}"}\n${h.renderChildren(node.content ?? [])}\n:::`,
+  addInputRules() {
+    // "/ai " at the start of an empty line turns it into a request block.
+    return [textblockTypeInputRule({ find: /^\/ai\s$/, type: this.type, getAttributes: () => ({ id: newRequestId() }) })];
+  },
+  addKeyboardShortcuts() {
+    return {
+      // Enter sends the request to Claude (if there's a prompt) and continues writing below it.
+      Enter: ({ editor }) => {
+        const { $from } = editor.state.selection;
+        const node = $from.parent;
+        if (node.type.name !== this.name) return false;
+        const pos = $from.before();
+        const after = $from.after();
+        const canGenerate = this.options.onGenerate && node.textContent.trim().length > 0 && node.attrs.status !== 'generating';
+        if (canGenerate) setRequestStatus(editor, node.attrs.id, 'generating');
+        editor.chain().insertContentAt(after, { type: 'paragraph' }).setTextSelection(after + 1).run();
+        if (canGenerate) this.options.onGenerate(node.attrs.id, pos);
+        return true;
+      },
+    };
+  },
+});
+
+const AiResult = Node.create({
+  name: 'aiResult',
+  group: 'block',
+  content: 'block+',
+  defining: true,
+  addAttributes: () => ({
+    id: { default: null, parseHTML: (el) => el.getAttribute('data-id') },
+    prompt: { default: '', parseHTML: (el) => el.getAttribute('data-prompt') ?? '' },
+  }),
+  parseHTML: () => [{ tag: 'div[data-ai-result]' }],
+  renderHTML: ({ node, HTMLAttributes }) =>
+    ['div', mergeAttributes(HTMLAttributes, { 'data-ai-result': '', 'data-id': node.attrs.id, 'data-prompt': node.attrs.prompt }), 0],
+  markdownTokenName: 'ai-result',
+  markdownTokenizer: aiTokenizer('result'),
+  parseMarkdown: (token, h) => ({
+    type: 'aiResult',
+    attrs: { id: token.attrs.id ?? null, prompt: token.attrs.prompt ?? '' },
+    content: h.parseChildren(token.tokens),
+  }),
+  renderMarkdown: (node, h) =>
+    `:::ai-result{id="${escapeAttr(node.attrs.id)}" prompt="${escapeAttr(node.attrs.prompt)}"}\n${h.renderChildren(node.content ?? [], '\n\n')}\n:::`,
+  addNodeView() {
+    return ({ node, getPos, editor }) => {
+      const dom = document.createElement('div');
+      dom.className = 'ai-result';
+      const header = document.createElement('div');
+      header.className = 'ai-result-header';
+      header.contentEditable = 'false';
+      const badge = document.createElement('span');
+      badge.className = 'ai-badge';
+      badge.textContent = '✨ Claude';
+      const prompt = document.createElement('span');
+      prompt.className = 'ai-prompt';
+      prompt.textContent = node.attrs.prompt;
+      const accept = document.createElement('button');
+      accept.type = 'button';
+      accept.className = 'ai-accept';
+      accept.textContent = 'Accept';
+      accept.title = 'Keep this as normal text';
+      const discard = document.createElement('button');
+      discard.type = 'button';
+      discard.className = 'ai-discard';
+      discard.textContent = 'Discard';
+      discard.title = 'Remove this generated text';
+      header.append(badge, prompt, accept, discard);
+      const body = document.createElement('div');
+      body.className = 'ai-result-body';
+      dom.append(header, body);
+
+      const act = (keep) => {
+        const pos = getPos();
+        if (typeof pos !== 'number') return;
+        const current = editor.state.doc.nodeAt(pos);
+        if (!current) return;
+        editor.chain().focus().command(({ tr }) => {
+          if (keep) tr.replaceWith(pos, pos + current.nodeSize, current.content);
+          else tr.delete(pos, pos + current.nodeSize);
+          return true;
+        }).run();
+      };
+      accept.addEventListener('click', () => act(true));
+      discard.addEventListener('click', () => act(false));
+
+      return {
+        dom,
+        contentDOM: body,
+        update: (updated) => {
+          if (updated.type.name !== 'aiResult') return false;
+          prompt.textContent = updated.attrs.prompt;
+          return true;
+        },
+        stopEvent: (e) => header.contains(e.target),
+        ignoreMutation: (m) => header.contains(m.target),
+      };
+    };
+  },
+});
+
+/** Sets the UI-only status of a request box (not part of undo history). Returns false if it isn't found. */
+function setRequestStatus(editor, requestId, status) {
+  let found = false;
+  const tr = editor.state.tr;
+  editor.state.doc.descendants((node, pos) => {
+    if (found) return false;
+    if (node.type.name === 'aiRequest' && node.attrs.id === requestId) {
+      tr.setNodeMarkup(pos, undefined, { ...node.attrs, status });
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  if (found) editor.view.dispatch(tr.setMeta('addToHistory', false));
+  return found;
+}
+
+// ---------- applying Claude's edits to an open note (mirrors AiBlocks.cs) ----------
+
+const headingText = (s) => s.trim().replace(/^#+\s*/, '').replace(/\s*#+$/, '').replace(/\s+/g, ' ').toLowerCase();
+
+const remoteEdits = {
+  // Replace the request block with the result block, leaving the rest of the document (and cursor) alone.
+  fulfill(editor, { requestId, block }) {
+    let target = null;
+    editor.state.doc.descendants((node, pos) => {
+      if (target) return false;
+      if (node.type.name === 'aiRequest' && node.attrs.id === requestId) { target = { pos, size: node.nodeSize }; return false; }
+      return true;
+    });
+    if (!target) return false;
+    return editor.commands.insertContentAt({ from: target.pos, to: target.pos + target.size }, block, { contentType: 'markdown', updateSelection: false });
+  },
+  append(editor, { markdown }) {
+    return editor.commands.insertContentAt(editor.state.doc.content.size, markdown, { contentType: 'markdown', updateSelection: false });
+  },
+  // Section = top-level content after the heading up to the next heading of the same or higher level.
+  section(editor, { heading, markdown }) {
+    const doc = editor.state.doc;
+    let from = null; let to = doc.content.size; let level = 0;
+    doc.forEach((node, offset) => {
+      if (node.type.name !== 'heading') return;
+      if (from === null && headingText(node.textContent) === headingText(heading)) {
+        from = offset + node.nodeSize; level = node.attrs.level;
+      } else if (from !== null && to === doc.content.size && offset >= from && node.attrs.level <= level) {
+        to = offset;
+      }
+    });
+    if (from === null) return false;
+    return editor.commands.insertContentAt({ from, to }, markdown, { contentType: 'markdown', updateSelection: false });
+  },
+};
+
+// Tiptap writes empty paragraphs as "&nbsp;" lines to preserve them; in markdown they're just noise.
+const cleanMarkdown = (md) => md.replace(/^&nbsp;[ \t]*$\n?/gm, '').replace(/\n{3,}/g, '\n\n');
+
 async function upload(file) {
   const res = await fetch('/attachments', {
     method: 'POST',
@@ -49,7 +258,7 @@ async function upload(file) {
  * @param {HTMLElement} element      host element
  * @param {any} dotnetRef            DotNetObjectReference exposing OnContentChanged(string), OnError(string)
  * @param {string} markdown          initial content
- * @param {{debounceMs?: number, fileInput?: HTMLInputElement}} options
+ * @param {{debounceMs?: number, fileInput?: HTMLInputElement, canGenerate?: boolean}} options
  */
 export function create(element, dotnetRef, markdown, options) {
   const debounceMs = options?.debounceMs ?? 1000;
@@ -78,15 +287,30 @@ export function create(element, dotnetRef, markdown, options) {
     timer = null;
     if (!dirty || destroyed) return;
     dirty = false;
-    await dotnetRef.invokeMethodAsync('OnContentChanged', editor.getMarkdown());
+    await dotnetRef.invokeMethodAsync('OnContentChanged', cleanMarkdown(editor.getMarkdown()));
   };
+  // Always save (used before generating, where the latest text must be on the server).
+  const flushNow = async () => { dirty = true; await flush(); };
 
   const editor = new Editor({
     element,
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, autolink: true } }),
       Markdown,
-      Placeholder.configure({ placeholder: 'Start writing… (paste a YouTube link or an image to embed it)' }),
+      Placeholder.configure({
+        placeholder: ({ node }) => node.type.name === 'aiRequest'
+          ? 'What should Claude write here? e.g. “Summarise this chapter from my notes above”'
+          : 'Start writing… type /ai to ask Claude, or paste a YouTube link or image',
+      }),
+      AiRequest.configure({
+        // Save first so the server sees the request, then ask it to generate.
+        onGenerate: options?.canGenerate
+          ? (requestId) => flushNow()
+            .then(() => dotnetRef.invokeMethodAsync('OnGenerate', requestId))
+            .catch((e) => { setRequestStatus(editor, requestId, 'failed'); reportError(e); })
+          : null,
+      }),
+      AiResult,
       Image.configure({ allowBase64: false }),
       YouTubeEmbed,
       TableKit.configure({ table: { resizable: false } }),
@@ -144,12 +368,25 @@ export function create(element, dotnetRef, markdown, options) {
     undo: () => editor.chain().focus().undo().run(),
     redo: () => editor.chain().focus().redo().run(),
     youtube: (url) => editor.chain().focus().setYoutubeVideo({ src: url }).run(),
+    aiRequest: () => editor.chain().focus().setNode('aiRequest', { id: newRequestId() }).run(),
   };
 
   return {
     flush,
     exec: (name, arg) => (commands[name] ? commands[name](arg) : false),
-    getMarkdown: () => editor.getMarkdown(),
+    setRequestStatus: (requestId, status) => setRequestStatus(editor, requestId, status),
+    /** Applies an edit Claude made on the server. Returns false if it couldn't be applied in place. */
+    applyRemote: (kind, args) => {
+      try { return !!remoteEdits[kind]?.(editor, args); } catch (e) { console.error(e); return false; }
+    },
+    /** Fallback: replace the whole document, keeping the cursor roughly where it was. */
+    setMarkdown: (markdown) => {
+      const { from } = editor.state.selection;
+      editor.commands.setContent(markdown, { contentType: 'markdown', emitUpdate: false });
+      editor.commands.setTextSelection(Math.min(from, editor.state.doc.content.size));
+      dirty = false;
+    },
+    getMarkdown: () => cleanMarkdown(editor.getMarkdown()),
     focus: () => { editor.commands.focus('end'); },
     destroy: async () => {
       document.removeEventListener('visibilitychange', onVisibility);
@@ -167,7 +404,7 @@ export function roundTrip(markdown) {
   const el = document.createElement('div');
   const ed = new Editor({
     element: el,
-    extensions: [StarterKit, Markdown, Image, YouTubeEmbed, TableKit, TaskList, TaskItem.configure({ nested: true })],
+    extensions: [StarterKit, Markdown, Image, YouTubeEmbed, TableKit, TaskList, TaskItem.configure({ nested: true }), AiRequest, AiResult],
     content: markdown,
     contentType: 'markdown',
   });

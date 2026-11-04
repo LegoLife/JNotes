@@ -1,6 +1,8 @@
 @page "/notes/{Id:guid}"
 @implements IDisposable
 @inject INoteStore Store
+@inject NoteEvents Events
+@inject AiRequestProcessor Ai
 @inject ISnackbar Snackbar
 
 @if (_loading)
@@ -25,7 +27,8 @@ else
     <input class="note-title" @ref="_titleInput" @bind="_title" @bind:after="RenameAsync" placeholder="Untitled"
            maxlength="200" aria-label="Title" @onkeydown="TitleKeyDown" onfocus="this.select()" />
 
-    <MarkdownEditor @key="noteId" @ref="_editor" Markdown="@_note.Content" SaveAsync="@(md => SaveAsync(noteId, md))" />
+    <MarkdownEditor @key="noteId" @ref="_editor" Markdown="@_note.Content" SaveAsync="@(md => SaveAsync(noteId, md))"
+                    GenerateAsync="@(id => GenerateAsync(noteId, id))" />
 }
 
 @code {
@@ -40,7 +43,42 @@ else
     private ElementReference _titleInput;
     private Guid? _focusedFor;
 
-    protected override void OnInitialized() => Store.TreeChanged += OnTreeChanged;
+    protected override void OnInitialized()
+    {
+        Store.TreeChanged += OnTreeChanged;
+        Events.ExternalEdit += OnExternalEdit;
+        Events.GenerationFailed += OnGenerationFailed;
+    }
+
+    // Enter in a ✨ box: the editor has already saved, so the server can see the request.
+    private Task GenerateAsync(Guid noteId, string requestId)
+    {
+        Ai.Start(noteId, requestId); // result arrives via ExternalEdit; failures via GenerationFailed
+        return Task.CompletedTask;
+    }
+
+    private void OnGenerationFailed(GenerationFailure failure)
+    {
+        if (_note?.Id != failure.NoteId) return;
+        _ = InvokeAsync(async () =>
+        {
+            if (_editor is not null) await _editor.SetRequestStatusAsync(failure.RequestId, "failed");
+            Snackbar.Add(failure.Message, Severity.Error);
+        });
+    }
+
+    // Claude edited a note via MCP: if it's this one, patch the open editor live.
+    private void OnExternalEdit(NoteEdit edit)
+    {
+        if (_note?.Id != edit.NoteId) return;
+        _ = InvokeAsync(async () =>
+        {
+            if (_note?.Id != edit.NoteId || _editor is null) return;
+            _note.Content = edit.NewContent;
+            await _editor.ApplyEditAsync(edit);
+            Snackbar.Add(edit is RequestFulfilledEdit ? "✨ Claude answered a request in this note" : "✨ Claude updated this note", Severity.Info);
+        });
+    }
 
     // Brand-new note: put the cursor in the (selected) title so you can just type its name.
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -118,5 +156,10 @@ else
         await InvokeAsync(StateHasChanged);
     }
 
-    public void Dispose() => Store.TreeChanged -= OnTreeChanged;
+    public void Dispose()
+    {
+        Store.TreeChanged -= OnTreeChanged;
+        Events.ExternalEdit -= OnExternalEdit;
+        Events.GenerationFailed -= OnGenerationFailed;
+    }
 }

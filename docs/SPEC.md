@@ -36,6 +36,15 @@ user's Claude subscription — no LLM API keys.
   Data-protection keys persisted to `/data/keys`.
 - App is proxy-agnostic: honours `X-Forwarded-*`; exposure/tunnelling handled by the user.
 
+## Inline generation (added during step 3)
+- Pressing Enter in a ✨ `/ai` box generates the answer immediately: JNotes runs **Claude Code headless**
+  (`claude -p`, no tools/MCP/settings, no saved session) using the user's Claude subscription
+  (their login on a PC; `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` in Docker). No API key.
+- The model gets the whole note with a marker where the request sits; the answer is filled in via the same
+  path as MCP's `fulfill_request`, so the open editor updates live with Accept/Discard.
+- Box states: pending → "Claude is writing…" → result, or "Couldn't generate" (Enter retries). Max 2 concurrent runs.
+- Reason: Claude Desktop can't be triggered by JNotes, and its scheduler is hourly at best.
+
 ## Claude integration (MCP)
 - MCP endpoint `/mcp` in the same app (official C# SDK `ModelContextProtocol.AspNetCore`,
   Streamable HTTP). **LAN only**, **static bearer token**; Claude Desktop connects through
@@ -46,7 +55,10 @@ user's Claude subscription — no LLM API keys.
   `append_to_note`, `replace_section` (by heading), `fulfill_request`, `move_note`.
   **No delete, no full-document overwrite.**
 - **Commands** = MCP prompts, editable in-app (e.g. Chapter Summary), surfaced in Claude's "+" menu.
-- **Inline requests**: typing `/ai …` inserts a pending block (markdown: `:::ai …:::`).
+- **Inline requests**: typing `/ai ` inserts a pending block. Markdown syntax (shared by `AiBlocks.cs` and `editor.js`):
+  `:::ai-request{id="…"}` / prompt / `:::`; once fulfilled: `:::ai-result{id="…" prompt="…"}` / markdown / `:::`.
+  Generated lines starting with `:::` are escaped so they can't close or forge blocks.
+- Extra read tool beyond the original list: `list_notes(folder)`. Folders in `create_note`/`move_note` paths are created if missing.
   A "process my requests" prompt makes Claude fetch pending blocks with context and fill them.
 - Fulfilled requests render **live** in an open editor (targeted patch, cursor undisturbed)
   as an **AI-generated callout** with Accept (→ plain text) / Discard.

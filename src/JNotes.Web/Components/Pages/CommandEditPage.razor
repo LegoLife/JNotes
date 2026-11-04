@@ -1,0 +1,101 @@
+@page "/claude/commands/{Id:guid}"
+@inject ICommandStore Commands
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_command is null)
+{
+    <MudAlert Severity="Severity.Info">This command doesn't exist.</MudAlert>
+}
+else
+{
+    <PageTitle>@_title · Commands · JNotes</PageTitle>
+    <div class="note-meta">
+        <a href="claude" class="breadcrumb">Claude › Commands</a>
+        <span class="save-state">@(_dirty ? "Unsaved changes" : _saved)</span>
+    </div>
+
+    <MudTextField @bind-Value="_title" @bind-Value:after="MarkDirty" Label="Name (shown in Claude's + menu)" Immediate="true" MaxLength="200" Class="mb-3" />
+    <MudTextField @bind-Value="_description" @bind-Value:after="MarkDirty" Label="Short description" Immediate="true" MaxLength="300" Class="mb-3" />
+    <MudTextField @bind-Value="_body" @bind-Value:after="MarkDirty" Label="Instructions for Claude" Lines="12" Sizing="InputSizing.Auto" MaxLines="30"
+                  Variant="Variant.Outlined" Immediate="true" Class="mb-2 command-body"
+                  HelperText="Use {{name}} for things Claude should ask you for, e.g. {{book}}." />
+
+    <div class="mb-4">
+        <MudText Typo="Typo.caption" Class="text-secondary">Claude will ask for: </MudText>
+        @if (_arguments.Count == 0)
+        {
+            <MudText Typo="Typo.caption" Class="text-secondary">nothing</MudText>
+        }
+        @foreach (var arg in _arguments)
+        {
+            <span class="arg-chip">@arg</span>
+        }
+    </div>
+
+    <MudExpansionPanels Elevation="0" Class="mb-4">
+        <MudExpansionPanel Text="Rules added to every command">
+            <pre class="ground-rules">@CommandPrompts.GroundRules.Trim()</pre>
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+
+    <div class="command-actions">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="!_dirty" OnClick="SaveAsync">Save</MudButton>
+        <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Outlined.Delete" OnClick="DeleteAsync">Delete</MudButton>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Command? _command;
+    private string _title = "", _description = "", _body = "", _saved = "";
+    private IReadOnlyList<string> _arguments = [];
+    private bool _loading = true, _dirty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _command = await Commands.GetAsync(Id);
+        if (_command is not null)
+        {
+            (_title, _description, _body) = (_command.Title, _command.Description, _command.Body);
+            _arguments = CommandPrompts.Arguments(_body);
+        }
+        _dirty = false;
+        _loading = false;
+    }
+
+    private void MarkDirty()
+    {
+        _dirty = true;
+        _arguments = CommandPrompts.Arguments(_body);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_command is null) return;
+        if (string.IsNullOrWhiteSpace(_body)) { Snackbar.Add("Add some instructions for Claude first.", Severity.Warning); return; }
+        try
+        {
+            await Commands.UpdateAsync(_command.Id, _title, _description, _body);
+            _dirty = false;
+            _saved = $"Saved {DateTime.Now:HH:mm} — restart Claude Desktop to pick up changes";
+        }
+        catch (DomainException ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_command is null) return;
+        var ok = await Dialogs.ShowMessageBoxAsync("Delete command", $"Delete “{_command.Title}”?", yesText: "Delete", cancelText: "Cancel");
+        if (ok != true) return;
+        await Commands.DeleteAsync(_command.Id);
+        Nav.NavigateTo("claude");
+    }
+}

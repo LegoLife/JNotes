@@ -8,6 +8,8 @@ work with over MCP. See [docs/SPEC.md](docs/SPEC.md) for the full design.
 - **Ctrl+K**: jump to a note by title. The search icon opens full-text search (every word must match as a word start; use `"quotes"` for exact phrases).
 - **Templates** (app bar): use `{{title}}`, `{{date}}` and `{{folder}}`. Set a folder's default template from its "…" menu.
 - **Images**: paste, drag in, or use the toolbar button (PNG/JPEG/GIF/WebP, ≤20 MB). **YouTube**: paste a link, or use the toolbar button.
+- **Ask Claude inline**: in a note type `/ai ` + what you want and press Enter; the answer appears in place a few seconds later (Accept/Discard). JNotes runs Claude Code headless with your Claude subscription — no API key. In Docker, set `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`).
+- **Claude** (✨ in the app bar): a "Test it" button for inline answers, Claude Desktop connection instructions, and your editable commands for bigger jobs in Claude Desktop.
 - **Import from Docmost** (app bar): upload a space export (Markdown + attachments). Any content that couldn't be converted is listed after the import.
 
 ## Develop
@@ -36,10 +38,13 @@ JNotes__PasswordHash=x dotnet ef migrations add <Name> --project src/JNotes.Data
 git clone <repo> jnotes && cd jnotes
 docker compose build
 echo "JNOTES_PASSWORD_HASH=$(docker compose run --rm -T jnotes hash-password 'your-password')" > .env
+echo "JNOTES_MCP_TOKEN=$(docker compose run --rm -T jnotes generate-token)" >> .env
+# On a PC with Claude Code: run `claude setup-token`, then add the result:
+echo "CLAUDE_CODE_OAUTH_TOKEN=<token from claude setup-token>" >> .env
 docker compose up -d
 ```
 
-Then open `http://<pi-ip>:8080`. To avoid your password ending up in shell history, use
+Then open `http://<pi-ip>:8080` and follow the ✨ Claude page to connect Claude Desktop (dev token: `dev-mcp-token`). To avoid your password ending up in shell history, use
 `docker compose run --rm jnotes hash-password` (interactive prompt) and paste the result into `.env`.
 
 Alternatively, cross-build on a PC and copy the image over:
