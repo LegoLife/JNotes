@@ -1,7 +1,7 @@
 <MudDialog>
     <TitleContent>@Title</TitleContent>
     <DialogContent>
-        <MudTextField @bind-Value="Value" Label="@Label" AutoFocus="true" Immediate="true"
+        <MudTextField @ref="_input" @bind-Value="Value" Label="@Label" AutoFocus="true" Immediate="true"
                       OnKeyDown="OnKeyDown" MaxLength="200" />
     </DialogContent>
     <DialogActions>
@@ -17,6 +17,13 @@
     [Parameter] public string Label { get; set; } = "Name";
     [Parameter] public string ConfirmText { get; set; } = "Save";
     [Parameter] public string Value { get; set; } = "";
+
+    private MudTextField<string>? _input;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _input is not null) await _input.SelectAsync(); // focus + select existing name
+    }
 
     private void Submit()
     {

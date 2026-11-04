@@ -7,6 +7,7 @@ public sealed class JNotesDbContext(DbContextOptions<JNotesDbContext> options) :
 {
     public DbSet<Folder> Folders => Set<Folder>();
     public DbSet<Note> Notes => Set<Note>();
+    public DbSet<Template> Templates => Set<Template>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -14,8 +15,11 @@ public sealed class JNotesDbContext(DbContextOptions<JNotesDbContext> options) :
         {
             e.Property(x => x.Name).HasMaxLength(Names.MaxLength);
             e.HasOne<Folder>().WithMany().HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Template>().WithMany().HasForeignKey(x => x.DefaultTemplateId).OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(x => x.ParentId);
         });
+
+        b.Entity<Template>(e => e.Property(x => x.Name).HasMaxLength(Names.MaxLength));
 
         b.Entity<Note>(e =>
         {

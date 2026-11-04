@@ -20,6 +20,23 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
             .ToList();
     }
 
+    public async Task<Folder?> GetFolderAsync(Guid id, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        return await db.Folders.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
+    }
+
+    public async Task SetDefaultTemplateAsync(Guid folderId, Guid? templateId, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var folder = await RequireFolder(db, folderId, ct);
+        if (templateId is { } t && !await db.Templates.AnyAsync(x => x.Id == t, ct))
+            throw new DomainException("Template not found.");
+        folder.DefaultTemplateId = templateId;
+        folder.UpdatedAt = clock.GetUtcNow();
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task<Folder> CreateFolderAsync(string name, Guid? parentId, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);

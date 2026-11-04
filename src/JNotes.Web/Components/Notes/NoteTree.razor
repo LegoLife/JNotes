@@ -1,5 +1,6 @@
 @implements IDisposable
 @inject INoteStore Store
+@inject NoteFactory Factory
 @inject NavigationManager Nav
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
@@ -9,6 +10,9 @@
     <MudSpacer />
     <MudTooltip Text="New note">
         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.NoteAdd" OnClick="() => NewNoteAsync(null)" aria-label="New note" />
+    </MudTooltip>
+    <MudTooltip Text="New note from template">
+        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.PostAdd" OnClick="() => NewNoteFromTemplateAsync(null, null)" aria-label="New note from template" />
     </MudTooltip>
     <MudTooltip Text="New folder">
         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="() => NewFolderAsync(null)" aria-label="New folder" />
@@ -42,11 +46,21 @@
 
     private async Task ReloadAsync() => _index = new NoteTreeIndex(await Store.GetTreeAsync());
 
-    private void OnTreeChanged() => _ = InvokeAsync(async () =>
+    // Coalesce bursts (e.g. an import creating hundreds of notes) into one reload.
+    private bool _reloadPending;
+
+    private void OnTreeChanged()
     {
-        await ReloadAsync();
-        StateHasChanged();
-    });
+        if (_reloadPending) return;
+        _reloadPending = true;
+        _ = InvokeAsync(async () =>
+        {
+            await Task.Delay(150);
+            _reloadPending = false;
+            await ReloadAsync();
+            StateHasChanged();
+        });
+    }
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(() =>
     {
@@ -84,11 +98,13 @@
                         <span class="tree-name">@e.Name</span>
                     </button>
                     <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true" Class="tree-menu" aria-label="@($"Actions for {e.Name}")">
-                        <MudMenuItem Icon="@Icons.Material.Outlined.NoteAdd" OnClick="() => NewNoteAsync(e.Id)">New note here</MudMenuItem>
-                        <MudMenuItem Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="() => NewFolderAsync(e.Id)">New subfolder</MudMenuItem>
-                        <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => RenameAsync(e)">Rename</MudMenuItem>
-                        <MudMenuItem Icon="@Icons.Material.Outlined.DriveFileMove" OnClick="() => MoveAsync(e)">Move</MudMenuItem>
-                        <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="() => DeleteAsync(e)">Delete</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.NoteAdd" OnClick="() => Later(() => NewNoteAsync(e.Id))">New note here</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.PostAdd" OnClick="() => Later(() => NewNoteFromTemplateAsync(e.Id, null))">New note from template…</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="() => Later(() => NewFolderAsync(e.Id))">New subfolder</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.DashboardCustomize" OnClick="() => Later(() => SetDefaultTemplateAsync(e))">Default template…</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => Later(() => RenameAsync(e))">Rename</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.DriveFileMove" OnClick="() => Later(() => MoveAsync(e))">Move</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="() => Later(() => DeleteAsync(e))">Delete</MudMenuItem>
                     </MudMenu>
                 </div>
                 @if (open)
@@ -110,9 +126,9 @@
                         <span class="tree-name">@e.Name</span>
                     </a>
                     <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true" Class="tree-menu" aria-label="@($"Actions for {e.Name}")">
-                        <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => RenameAsync(e)">Rename</MudMenuItem>
-                        <MudMenuItem Icon="@Icons.Material.Outlined.DriveFileMove" OnClick="() => MoveAsync(e)">Move</MudMenuItem>
-                        <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="() => DeleteAsync(e)">Delete</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => Later(() => RenameAsync(e))">Rename</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.DriveFileMove" OnClick="() => Later(() => MoveAsync(e))">Move</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Outlined.Delete" OnClick="() => Later(() => DeleteAsync(e))">Delete</MudMenuItem>
                     </MudMenu>
                 </div>
             }
@@ -124,13 +140,53 @@
         if (!_expanded.Remove(id)) _expanded.Add(id);
     }
 
+    /// <summary>Quick "Untitled" note — unless the folder has a default template, then ask for a title.</summary>
     private async Task NewNoteAsync(Guid? folderId)
     {
+        if (folderId is { } fid && await Store.GetFolderAsync(fid) is { DefaultTemplateId: { } templateId })
+        {
+            await NewNoteFromTemplateAsync(fid, templateId);
+            return;
+        }
         await RunAsync(async () =>
         {
             var note = await Store.CreateNoteAsync("Untitled", folderId);
             if (folderId is { } f) _expanded.Add(f);
             Nav.NavigateTo($"notes/{note.Id}");
+        });
+    }
+
+    private async Task NewNoteFromTemplateAsync(Guid? folderId, Guid? templateId)
+    {
+        var folder = folderId is { } fid ? await Store.GetFolderAsync(fid) : null;
+        var dialog = await Dialogs.ShowAsync<NewNoteDialog>(null, new DialogParameters<NewNoteDialog>
+        {
+            { x => x.FolderName, folder?.Name },
+            { x => x.DefaultTemplateId, templateId ?? folder?.DefaultTemplateId },
+        }, new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        if (await dialog.Result is not { Canceled: false, Data: NewNoteDialog.Result request }) return;
+
+        await RunAsync(async () =>
+        {
+            var note = await Factory.CreateAsync(request.Title, folderId, request.TemplateId);
+            if (folderId is { } f) _expanded.Add(f);
+            Nav.NavigateTo($"notes/{note.Id}");
+        });
+    }
+
+    private async Task SetDefaultTemplateAsync(TreeEntry folder)
+    {
+        var current = (await Store.GetFolderAsync(folder.Id))?.DefaultTemplateId;
+        var dialog = await Dialogs.ShowAsync<DefaultTemplateDialog>(null, new DialogParameters<DefaultTemplateDialog>
+        {
+            { x => x.FolderName, folder.Name }, { x => x.CurrentTemplateId, current },
+        }, new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        if (await dialog.Result is not { Canceled: false, Data: Guid chosen }) return;
+
+        await RunAsync(async () =>
+        {
+            await Store.SetDefaultTemplateAsync(folder.Id, chosen == Guid.Empty ? null : chosen);
+            Snackbar.Add(chosen == Guid.Empty ? $"“{folder.Name}” has no default template." : $"Default template set for “{folder.Name}”.", Severity.Success);
         });
     }
 
@@ -264,6 +320,16 @@
         }, new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
         var result = await dialog.Result;
         return result is { Canceled: false, Data: string s } ? s : null;
+    }
+
+    /// <summary>
+    /// MudMenu stays open until its item's OnClick task completes, so menu actions that open a
+    /// dialog would leave the menu (and its focus trap) up behind the dialog. Start them detached.
+    /// </summary>
+    private Task Later(Func<Task> action)
+    {
+        _ = InvokeAsync(action);
+        return Task.CompletedTask;
     }
 
     private async Task RunAsync(Func<Task> action)

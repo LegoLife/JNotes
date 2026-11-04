@@ -1,3 +1,4 @@
+using JNotes.Core;
 using JNotes.Data;
 using JNotes.Web.Auth;
 using JNotes.Web.Components;
@@ -34,6 +35,8 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 
 builder.Services.AddJNotesData($"Data Source={Path.Combine(dataDir, "jnotes.db")}");
+builder.Services.AddSingleton(new AttachmentStore(Path.Combine(dataDir, "attachments")));
+builder.Services.AddSingleton<DocmostImporter>();
 builder.Services.AddSingleton(new PasswordVerifier(passwordHash));
 
 builder.Services.AddDataProtection()
@@ -79,6 +82,28 @@ app.MapPost("/logout", async (HttpContext ctx) =>
 {
     await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.Redirect("/login");
+});
+
+// Images: uploaded as a raw request body (type sniffed server-side), served only to the signed-in user.
+var attachmentsApi = app.MapGroup("/attachments").RequireAuthorization();
+attachmentsApi.MapPost("", async (HttpRequest request, AttachmentStore store, CancellationToken ct) =>
+{
+    try
+    {
+        var name = await store.SaveAsync(request.Body, ct);
+        return Results.Ok(new { url = AttachmentStore.UrlPrefix + name });
+    }
+    catch (DomainException ex)
+    {
+        return Results.Text(ex.Message, statusCode: StatusCodes.Status400BadRequest);
+    }
+});
+attachmentsApi.MapGet("{name}", (string name, AttachmentStore store, HttpResponse response) =>
+{
+    if (store.GetPath(name) is not { } path) return Results.NotFound();
+    response.Headers.CacheControl = "private, max-age=31536000, immutable"; // names are unique per upload
+    response.Headers.XContentTypeOptions = "nosniff";
+    return Results.File(path, AttachmentStore.ContentTypeFor(name), enableRangeProcessing: true);
 });
 
 app.MapStaticAssets().AllowAnonymous();

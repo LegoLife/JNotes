@@ -26,6 +26,9 @@ namespace JNotes.Data.Migrations
                     b.Property<long>("CreatedAt")
                         .HasColumnType("INTEGER");
 
+                    b.Property<Guid?>("DefaultTemplateId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -38,6 +41,8 @@ namespace JNotes.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DefaultTemplateId");
 
                     b.HasIndex("ParentId");
 
@@ -77,8 +82,39 @@ namespace JNotes.Data.Migrations
                     b.ToTable("Notes");
                 });
 
+            modelBuilder.Entity("JNotes.Core.Template", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("UpdatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Templates");
+                });
+
             modelBuilder.Entity("JNotes.Core.Folder", b =>
                 {
+                    b.HasOne("JNotes.Core.Template", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultTemplateId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("JNotes.Core.Folder", null)
                         .WithMany()
                         .HasForeignKey("ParentId")

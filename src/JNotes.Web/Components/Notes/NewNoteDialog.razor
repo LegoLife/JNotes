@@ -1,0 +1,55 @@
+@inject ITemplateStore Templates
+
+<MudDialog>
+    <TitleContent>New note@(FolderName is null ? "" : $" in {FolderName}")</TitleContent>
+    <DialogContent>
+        <MudTextField @ref="_input" @bind-Value="_title" Label="Title" AutoFocus="true" Immediate="true" MaxLength="200"
+                      OnKeyDown="OnKeyDown" />
+        <MudSelect T="Guid" @bind-Value="_templateId" Label="Template" Class="mt-3" AnchorOrigin="Origin.BottomCenter">
+            <MudSelectItem T="Guid" Value="Guid.Empty">Blank note</MudSelectItem>
+            @foreach (var t in _templates)
+            {
+                <MudSelectItem T="Guid" Value="t.Id">@t.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="string.IsNullOrWhiteSpace(_title)" OnClick="Submit">Create</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    public sealed record Result(string Title, Guid? TemplateId);
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public string? FolderName { get; set; }
+    [Parameter] public Guid? DefaultTemplateId { get; set; }
+
+    private MudTextField<string>? _input;
+    private string _title = "";
+    private Guid _templateId;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _input is not null) await _input.FocusAsync();
+    }
+    private IReadOnlyList<Template> _templates = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _templates = await Templates.ListAsync();
+        _templateId = DefaultTemplateId is { } d && _templates.Any(t => t.Id == d) ? d : Guid.Empty;
+    }
+
+    private void Submit()
+    {
+        if (string.IsNullOrWhiteSpace(_title)) return;
+        MudDialog.Close(DialogResult.Ok(new Result(_title.Trim(), _templateId == Guid.Empty ? null : _templateId)));
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") Submit();
+    }
+}

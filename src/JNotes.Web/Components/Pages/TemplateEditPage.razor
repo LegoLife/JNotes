@@ -1,0 +1,73 @@
+@page "/templates/{Id:guid}"
+@inject ITemplateStore Templates
+@inject ISnackbar Snackbar
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_template is null)
+{
+    <MudAlert Severity="Severity.Info">This template doesn't exist.</MudAlert>
+}
+else
+{
+    var templateId = _template.Id;
+    <PageTitle>@_name · Templates · JNotes</PageTitle>
+
+    <div class="note-meta">
+        <a href="templates" class="breadcrumb">Templates</a>
+        <span class="save-state" aria-live="polite">@_saveState</span>
+    </div>
+    <input class="note-title" @bind="_name" @bind:after="RenameAsync" maxlength="200" aria-label="Template name" />
+
+    <MudAlert Severity="Severity.Normal" Dense="true" Class="mb-3" Icon="@Icons.Material.Outlined.Info">
+        Placeholders:
+        @foreach (var (name, description) in TemplateRenderer.Variables)
+        {
+            <span class="var-chip"><code>@name</code> @description</span>
+        }
+    </MudAlert>
+
+    <MarkdownEditor @key="templateId" Markdown="@_template.Content" SaveAsync="@(md => SaveAsync(templateId, md))" />
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Template? _template;
+    private string _name = "";
+    private string _saveState = "";
+    private bool _loading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_template?.Id == Id) return;
+        _loading = true;
+        _template = await Templates.GetAsync(Id);
+        _name = _template?.Name ?? "";
+        _loading = false;
+    }
+
+    private async Task RenameAsync()
+    {
+        if (_template is null || _name.Trim() == _template.Name) return;
+        try
+        {
+            await Templates.RenameAsync(_template.Id, _name);
+            _template.Name = _name = _name.Trim();
+        }
+        catch (DomainException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Warning);
+            _name = _template.Name;
+        }
+    }
+
+    private async Task SaveAsync(Guid id, string markdown)
+    {
+        await Templates.SaveContentAsync(id, markdown);
+        if (_template?.Id == id) _saveState = $"Saved {DateTime.Now:HH:mm}";
+        await InvokeAsync(StateHasChanged);
+    }
+}

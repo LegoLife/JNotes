@@ -1,0 +1,131 @@
+@page "/import"
+@using System.IO.Compression
+@inject INoteStore Store
+@inject DocmostImporter Importer
+@inject ILogger<ImportPage> Log
+
+<PageTitle>Import · JNotes</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-2">Import from Docmost</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    In Docmost, open the space's menu → <b>Export</b>, choose <b>Markdown</b> and tick <b>Include attachments</b>.
+    Upload the resulting <code>.zip</code> here. Pages that have sub-pages become folders (with the page itself
+    inside as a note); images are imported; links between pages are kept.
+</MudText>
+
+<MudPaper Outlined="true" Class="pa-4 import-card">
+    <InputFile id="zip" OnChange="OnFileChosen" accept=".zip" class="import-file" disabled="@_busy" />
+    <label for="zip" class="mud-button-root mud-button mud-button-outlined mud-button-outlined-primary mud-ripple import-pick @(_busy ? "mud-disabled" : null)">
+        <MudIcon Icon="@Icons.Material.Outlined.FolderZip" Size="Size.Small" Class="mr-2" />
+        @(_file is null ? "Choose export .zip" : _file.Name)
+    </label>
+    @if (_file is not null)
+    {
+        <MudText Typo="Typo.caption" Class="ml-2">@(_file.Size / 1024 / 1024.0 is var mb && mb >= 1 ? $"{mb:0.0} MB" : $"{_file.Size / 1024} KB")</MudText>
+    }
+
+    <MudSelect T="Guid" @bind-Value="_target" Label="Import into" Class="mt-4" AnchorOrigin="Origin.BottomCenter" Disabled="_busy">
+        <MudSelectItem T="Guid" Value="Guid.Empty">Top level</MudSelectItem>
+        @foreach (var (id, path) in _folders)
+        {
+            <MudSelectItem T="Guid" Value="id">@path</MudSelectItem>
+        }
+    </MudSelect>
+    <MudTextField @bind-Value="_wrapper" Label="Put everything in a new folder named (optional)" Class="mt-3" Disabled="_busy" />
+
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="_file is null || _busy" OnClick="ImportAsync">
+        @if (_busy)
+        {
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+            <span>Importing…</span>
+        }
+        else
+        {
+            <span>Import</span>
+        }
+    </MudButton>
+</MudPaper>
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mt-4">@_error</MudAlert>
+}
+
+@if (_report is not null)
+{
+    <MudAlert Severity="@(_report.Warnings.Count == 0 ? Severity.Success : Severity.Warning)" Class="mt-4">
+        Imported @_report.Notes notes, @_report.Folders folders and @_report.Images images.
+        @if (_report.Warnings.Count > 0) { <span> @_report.Warnings.Count item(s) need a look:</span> }
+    </MudAlert>
+    @if (_report.Warnings.Count > 0)
+    {
+        <ul class="import-warnings">
+            @foreach (var w in _report.Warnings) { <li>@w</li> }
+        </ul>
+    }
+}
+
+@code {
+    private const long MaxUpload = 1024L * 1024 * 1024; // 1 GB
+
+    private IBrowserFile? _file;
+    private Guid _target = Guid.Empty;
+    private string _wrapper = "";
+    private IReadOnlyList<(Guid Id, string Path)> _folders = [];
+    private bool _busy;
+    private string? _error;
+    private ImportReport? _report;
+
+    protected override async Task OnInitializedAsync() => await LoadFoldersAsync();
+
+    private async Task LoadFoldersAsync() =>
+        _folders = new NoteTreeIndex(await Store.GetTreeAsync()).MoveDestinationsFor(new TreeEntry(Guid.Empty, "", null, false));
+
+    private void OnFileChosen(InputFileChangeEventArgs e)
+    {
+        _file = e.File;
+        _report = null;
+        _error = null;
+        // "Reading-space-export.zip" -> "Reading"
+        var name = Path.GetFileNameWithoutExtension(_file.Name);
+        if (name.EndsWith("-space-export", StringComparison.OrdinalIgnoreCase)) name = name[..^"-space-export".Length];
+        _wrapper = name;
+    }
+
+    private async Task ImportAsync()
+    {
+        if (_file is null) return;
+        _busy = true;
+        _error = null;
+        _report = null;
+        var temp = Path.Combine(Path.GetTempPath(), $"jnotes-import-{Guid.NewGuid():N}.zip");
+        try
+        {
+            await using (var upload = _file.OpenReadStream(MaxUpload))
+            await using (var fs = File.Create(temp))
+                await upload.CopyToAsync(fs);
+
+            using var zip = ZipFile.OpenRead(temp);
+            Guid? target = _target == Guid.Empty ? null : _target;
+            if (!string.IsNullOrWhiteSpace(_wrapper))
+                target = (await Store.CreateFolderAsync(_wrapper, target)).Id;
+
+            _report = await Importer.ImportAsync(zip, target);
+            await LoadFoldersAsync();
+        }
+        catch (InvalidDataException)
+        {
+            _error = "That file isn't a valid zip archive.";
+        }
+        catch (Exception ex) when (ex is DomainException or IOException)
+        {
+            Log.LogWarning(ex, "Docmost import failed");
+            _error = $"Import failed: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+            try { File.Delete(temp); } catch (IOException) { }
+        }
+    }
+}

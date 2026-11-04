@@ -1,0 +1,35 @@
+@inject ITemplateStore Templates
+
+<MudDialog>
+    <TitleContent>Default template for “@FolderName”</TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">New notes created in this folder will start from this template.</MudText>
+        <MudSelect T="Guid" @bind-Value="_templateId" Label="Template" AnchorOrigin="Origin.BottomCenter">
+            <MudSelectItem T="Guid" Value="Guid.Empty">None (blank notes)</MudSelectItem>
+            @foreach (var t in _templates)
+            {
+                <MudSelectItem T="Guid" Value="t.Id">@t.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => MudDialog.Cancel()">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="() => MudDialog.Close(DialogResult.Ok(_templateId))">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public string FolderName { get; set; } = "";
+    [Parameter] public Guid? CurrentTemplateId { get; set; }
+
+    private Guid _templateId;
+    private IReadOnlyList<Template> _templates = [];
+
+    /// <summary>Result data: the chosen template id, or Guid.Empty for none.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        _templates = await Templates.ListAsync();
+        _templateId = CurrentTemplateId ?? Guid.Empty;
+    }
+}

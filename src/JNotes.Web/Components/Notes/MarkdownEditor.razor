@@ -1,16 +1,73 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* mousedown is suppressed so toolbar clicks don't steal focus/selection from the editor. *@
+<div class="editor-toolbar" role="toolbar" aria-label="Formatting" @onmousedown:preventDefault="true">
+    @foreach (var group in ToolbarGroups)
+    {
+        <div class="tb-group">
+            @foreach (var (command, icon, label) in group)
+            {
+                <MudTooltip Text="@label" Delay="500">
+                    <MudIconButton Size="Size.Small" Icon="@icon" aria-label="@label" OnClick="() => ExecAsync(command)" />
+                </MudTooltip>
+            }
+        </div>
+    }
+    <div class="tb-group">
+        <MudTooltip Text="Insert image" Delay="500">
+            <label class="tb-file mud-icon-button" aria-label="Insert image">
+                <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden @ref="_fileInput" />
+                <MudIcon Icon="@Icons.Material.Outlined.Image" Size="Size.Small" />
+            </label>
+        </MudTooltip>
+        <MudTooltip Text="Embed YouTube video" Delay="500">
+            <MudIconButton Size="Size.Small" Icon="@Icons.Custom.Brands.YouTube" aria-label="Embed YouTube video" OnClick="InsertYouTubeAsync" />
+        </MudTooltip>
+    </div>
+</div>
 
 <div class="editor-host" @ref="_host"></div>
 
 @code {
-    /// <summary>Initial markdown. Only read when the editor is created; re-key the component to load a different note.</summary>
+    /// <summary>Initial markdown. Only read when the editor is created; re-key the component to load a different document.</summary>
     [Parameter, EditorRequired] public string Markdown { get; set; } = "";
 
     /// <summary>Called (debounced) with the full markdown whenever the user edits.</summary>
     [Parameter, EditorRequired] public Func<string, Task> SaveAsync { get; set; } = default!;
 
+    private static readonly (string Command, string Icon, string Label)[][] ToolbarGroups =
+    [
+        [
+            ("bold", Icons.Material.Filled.FormatBold, "Bold (Ctrl+B)"),
+            ("italic", Icons.Material.Filled.FormatItalic, "Italic (Ctrl+I)"),
+            ("strike", Icons.Material.Filled.FormatStrikethrough, "Strikethrough"),
+            ("code", Icons.Material.Filled.Code, "Inline code"),
+        ],
+        [
+            ("h1", Icons.Material.Filled.LooksOne, "Heading 1"),
+            ("h2", Icons.Material.Filled.LooksTwo, "Heading 2"),
+            ("h3", Icons.Material.Filled.Looks3, "Heading 3"),
+        ],
+        [
+            ("bulletList", Icons.Material.Filled.FormatListBulleted, "Bullet list"),
+            ("orderedList", Icons.Material.Filled.FormatListNumbered, "Numbered list"),
+            ("taskList", Icons.Material.Outlined.Checklist, "Checklist"),
+            ("blockquote", Icons.Material.Filled.FormatQuote, "Quote"),
+            ("codeBlock", Icons.Material.Outlined.DataObject, "Code block"),
+            ("table", Icons.Material.Outlined.TableChart, "Table"),
+            ("hr", Icons.Material.Filled.HorizontalRule, "Divider"),
+        ],
+        [
+            ("undo", Icons.Material.Filled.Undo, "Undo (Ctrl+Z)"),
+            ("redo", Icons.Material.Filled.Redo, "Redo (Ctrl+Shift+Z)"),
+        ],
+    ];
+
     private ElementReference _host;
+    private ElementReference _fileInput;
     private IJSObjectReference? _module;
     private IJSObjectReference? _editor;
     private DotNetObjectReference<MarkdownEditor>? _self;
@@ -20,15 +77,37 @@
         if (!firstRender) return;
         _self = DotNetObjectReference.Create(this);
         _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/editor.js");
-        _editor = await _module.InvokeAsync<IJSObjectReference>("create", _host, _self, Markdown, new { debounceMs = 1000 });
+        _editor = await _module.InvokeAsync<IJSObjectReference>("create", _host, _self, Markdown,
+            new { debounceMs = 1000, fileInput = _fileInput });
     }
 
     [JSInvokable]
     public Task OnContentChanged(string markdown) => SaveAsync(markdown);
 
+    [JSInvokable]
+    public Task OnError(string message) => InvokeAsync(() => Snackbar.Add(message, Severity.Error));
+
     public async Task FocusAsync()
     {
         if (_editor is not null) await _editor.InvokeVoidAsync("focus");
+    }
+
+    private async Task ExecAsync(string command)
+    {
+        if (_editor is not null) await _editor.InvokeAsync<bool>("exec", command, null);
+    }
+
+    private async Task InsertYouTubeAsync()
+    {
+        if (_editor is null) return;
+        var dialog = await Dialogs.ShowAsync<NameDialog>(null, new DialogParameters<NameDialog>
+        {
+            { x => x.Title, "Embed YouTube video" }, { x => x.Label, "YouTube link" }, { x => x.ConfirmText, "Embed" },
+        }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is not { Canceled: false, Data: string url }) return;
+
+        if (!await _editor.InvokeAsync<bool>("exec", "youtube", url.Trim()))
+            Snackbar.Add("That doesn't look like a YouTube link.", Severity.Warning);
     }
 
     public async ValueTask DisposeAsync()

@@ -5,6 +5,10 @@ public sealed class Folder
     public Guid Id { get; set; } = Guid.NewGuid();
     public required string Name { get; set; }
     public Guid? ParentId { get; set; }
+
+    /// <summary>Template pre-selected when creating a note in this folder.</summary>
+    public Guid? DefaultTemplateId { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
@@ -18,6 +22,16 @@ public sealed class Note
     /// <summary>Markdown — the source of truth for the document body.</summary>
     public string Content { get; set; } = "";
 
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>A reusable markdown skeleton. Supports {{title}}, {{date}} and {{folder}}.</summary>
+public sealed class Template
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public required string Name { get; set; }
+    public string Content { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
