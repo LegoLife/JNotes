@@ -1,0 +1,99 @@
+@page "/settings"
+@using JNotes.Data
+@inject BackupService Backups
+@inject ISnackbar Snackbar
+
+<PageTitle>Settings · JNotes</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-6">Settings</MudText>
+
+<MudText Typo="Typo.h6" Class="mb-2">Backups</MudText>
+@if (_status.IsStale(DateTimeOffset.UtcNow))
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-3">
+        @(_status.LastBackup is null ? "No backup has been made yet." : $"The last backup is over {BackupStatus.StaleAfter.TotalHours:0} hours old.")
+        Backups run every night at 3am while JNotes is running. Use “Back up now” to make one immediately.
+    </MudAlert>
+}
+<div class="settings-grid">
+    <span>Last backup</span>
+    <span>@(_status.LastBackup is { } t ? $"{t.ToLocalTime():ddd d MMM yyyy, HH:mm} ({Ago(t)})" : "never")</span>
+    <span>Kept on this device</span>
+    <span>@_status.LocalCount of @BackupService.KeepLocal @(_status.LastSizeBytes > 0 ? $"· {_status.LastSizeBytes / 1024.0 / 1024:0.0} MB each" : "")</span>
+    <span>Folder</span>
+    <span><code>@Backups.Directory</code></span>
+    <span>Google Drive copy</span>
+    <span>
+        @if (_status.LastDriveSync is { } d)
+        {
+            <text>last copied @d.ToLocalTime().ToString("ddd d MMM, HH:mm") (@Ago(d))</text>
+        }
+        else
+        {
+            <text>not set up</text>
+        }
+    </span>
+</div>
+<MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Backup" Class="mt-3"
+           Disabled="_running" OnClick="BackupNowAsync">@(_running ? "Backing up…" : "Back up now")</MudButton>
+
+<MudExpansionPanels Elevation="0" Class="mt-6">
+    <MudExpansionPanel Text="Set up the Google Drive copy (on the Pi)">
+        <ol class="claude-steps">
+            <li>On a computer with a web browser, install <a href="https://rclone.org/downloads/" target="_blank" rel="noopener">rclone</a> and run
+                <code>rclone authorize "drive"</code>. Sign in to Google and copy the token it prints.</li>
+            <li>On the Pi, in the JNotes folder, run <code>docker compose run --rm --entrypoint rclone rclone config</code>: choose <b>n</b> (new remote),
+                name it <code>gdrive</code>, storage <b>drive</b>, leave client id/secret empty, scope <b>1</b> (full access),
+                answer <b>n</b> to “Use web browser to authenticate?”, and paste the token from step 1.</li>
+            <li>Start the copier: <code>docker compose --profile backup up -d</code>.</li>
+        </ol>
+        <MudText Typo="Typo.body2" Class="text-secondary">
+            Every hour it copies new database backups to the <code>JNotes Backups</code> folder in your Drive (keeping the last 7 days there)
+            and copies any new images. This page shows when it last ran.
+        </MudText>
+    </MudExpansionPanel>
+    <MudExpansionPanel Text="Restoring from a backup">
+        <ol class="claude-steps">
+            <li>Stop JNotes: <code>docker compose stop jnotes</code>.</li>
+            <li>Copy the backup you want over the database, e.g.
+                <code>docker compose run --rm --entrypoint sh jnotes -c "cp /data/backups/jnotes-YYYYMMDD-HHMMSS.db /data/jnotes.db &amp;&amp; rm -f /data/jnotes.db-wal /data/jnotes.db-shm"</code></li>
+            <li>Start it again: <code>docker compose start jnotes</code>.</li>
+        </ol>
+        <MudText Typo="Typo.body2" Class="text-secondary">For a single note, use its History (clock icon) instead — no restore needed.</MudText>
+    </MudExpansionPanel>
+</MudExpansionPanels>
+
+@code {
+    private BackupStatus _status = new(null, 0, 0, null);
+    private bool _running;
+
+    protected override void OnInitialized() => _status = Backups.GetStatus();
+
+    private async Task BackupNowAsync()
+    {
+        _running = true;
+        try
+        {
+            await Backups.BackupNowAsync();
+            Snackbar.Add("Backup saved.", Severity.Success);
+        }
+        catch (Exception ex) when (ex is IOException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            Snackbar.Add($"Backup failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _running = false;
+            _status = Backups.GetStatus();
+        }
+    }
+
+    private static string Ago(DateTimeOffset t)
+    {
+        var span = DateTimeOffset.UtcNow - t;
+        return span.TotalMinutes < 1 ? "just now"
+            : span.TotalHours < 1 ? $"{(int)span.TotalMinutes} min ago"
+            : span.TotalDays < 1 ? $"{(int)span.TotalHours} h ago"
+            : $"{(int)span.TotalDays} days ago";
+    }
+}

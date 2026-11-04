@@ -1,6 +1,7 @@
 @implements IDisposable
 @inject INoteStore Store
 @inject NoteFactory Factory
+@inject ITrash Trash
 @inject NavigationManager Nav
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
@@ -16,6 +17,9 @@
     </MudTooltip>
     <MudTooltip Text="New folder">
         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.CreateNewFolder" OnClick="() => NewFolderAsync(null)" aria-label="New folder" />
+    </MudTooltip>
+    <MudTooltip Text="Trash">
+        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.Delete" Href="trash" aria-label="Trash" />
     </MudTooltip>
 </div>
 
@@ -283,32 +287,23 @@
         });
     }
 
+    // Deleting moves to Trash (kept 30 days), so no confirmation: just an Undo button.
     private async Task DeleteAsync(TreeEntry e)
     {
-        string message;
-        HashSet<Guid> removedNotes;
-        if (e.IsFolder)
-        {
-            var descendants = _index.DescendantsOf(e.Id).ToList();
-            removedNotes = descendants.Where(d => !d.IsFolder).Select(d => d.Id).ToHashSet();
-            message = descendants.Count == 0
-                ? $"Delete the empty folder “{e.Name}”?"
-                : $"Delete “{e.Name}” and everything in it ({removedNotes.Count} notes, {descendants.Count - removedNotes.Count} subfolders)? This can't be undone.";
-        }
-        else
-        {
-            removedNotes = [e.Id];
-            message = $"Delete “{e.Name}”? This can't be undone.";
-        }
-
-        var confirmed = await Dialogs.ShowMessageBoxAsync("Delete", message, yesText: "Delete", cancelText: "Cancel");
-        if (confirmed != true) return;
+        var removedNotes = e.IsFolder
+            ? _index.DescendantsOf(e.Id).Where(d => !d.IsFolder).Select(d => d.Id).ToHashSet()
+            : [e.Id];
 
         await RunAsync(async () =>
         {
-            if (e.IsFolder) await Store.DeleteFolderAsync(e.Id);
-            else await Store.DeleteNoteAsync(e.Id);
+            var batch = e.IsFolder ? await Store.DeleteFolderAsync(e.Id) : await Store.DeleteNoteAsync(e.Id);
             if (_activeId is { } active && removedNotes.Contains(active)) Nav.NavigateTo("");
+            Snackbar.Add($"Moved “{e.Name}” to Trash", Severity.Normal, config =>
+            {
+                config.Action = "Undo";
+                config.ActionColor = Color.Primary;
+                config.OnClick = _ => InvokeAsync(() => RunAsync(() => Trash.RestoreAsync(batch)));
+            });
         });
     }
 

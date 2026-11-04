@@ -182,6 +182,33 @@ html, body { margin: 0; }
 .ground-rules { white-space: pre-wrap; font-size: .82rem; margin: 0; color: var(--mud-palette-text-secondary); }
 .command-actions { display: flex; justify-content: space-between; }
 
+/* ---------- History, trash, settings ---------- */
+.note-actions { display: inline-flex; align-items: center; gap: 4px; }
+.history-layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; height: 60vh; }
+@media (max-width: 700px) { .history-layout { grid-template-columns: 1fr; height: auto; } }
+.history-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; border-right: 1px solid var(--mud-palette-lines-default); }
+.history-list li { display: grid; padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-right: 8px; }
+.history-list li:hover { background: var(--mud-palette-action-default-hover); }
+.history-list li.selected { background: var(--mud-palette-primary-hover); }
+.hv-time { font-weight: 600; font-size: .88rem; }
+.hv-reason { font-size: .78rem; color: var(--mud-palette-text-secondary); }
+.history-preview { overflow-y: auto; padding-right: 8px; }
+.hp-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 8px; }
+.hp-body { line-height: 1.6; }
+.hp-body img { max-width: 100%; }
+.hp-body ul, .hp-body ol { padding-left: 1.4em; margin: .4em 0; }
+.hp-body ul { list-style: disc; }
+.hp-body ol { list-style: decimal; }
+.hp-body h1, .hp-body h2, .hp-body h3 { margin: .9em 0 .3em; }
+.hp-body p { margin: .4em 0; }
+.hp-body table { border-collapse: collapse; }
+.hp-body th, .hp-body td { border: 1px solid var(--mud-palette-lines-default); padding: 4px 8px; }
+.trash-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; }
+.trash-row:hover { background: var(--mud-palette-action-default-hover); }
+.trash-info { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.settings-grid { display: grid; grid-template-columns: max-content 1fr; gap: 6px 24px; font-size: .92rem; }
+.settings-grid > span:nth-child(odd) { color: var(--mud-palette-text-secondary); }
+
 /* ---------- App bar search launcher ---------- */
 .search-launcher {
     margin-left: 24px; display: flex; align-items: center; gap: 8px; min-width: 240px;

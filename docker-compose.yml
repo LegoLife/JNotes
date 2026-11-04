@@ -18,5 +18,19 @@ services:
     volumes:
       - jnotes-data:/data
 
+  # Optional: hourly copy of backups + images to Google Drive. Set up once with
+  #   docker compose run --rm --entrypoint rclone rclone config
+  # (see Settings in JNotes), then start with: docker compose --profile backup up -d
+  rclone:
+    image: rclone/rclone:1.71.2
+    container_name: jnotes-rclone
+    profiles: ["backup"]
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/sync.sh"]
+    volumes:
+      - jnotes-data:/data
+      - ./rclone:/config/rclone
+      - ./deploy/rclone-sync.sh:/sync.sh:ro
+
 volumes:
   jnotes-data:

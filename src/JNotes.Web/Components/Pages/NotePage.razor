@@ -3,6 +3,7 @@
 @inject INoteStore Store
 @inject NoteEvents Events
 @inject AiRequestProcessor Ai
+@inject IDialogService Dialogs
 @inject ISnackbar Snackbar
 
 @if (_loading)
@@ -21,7 +22,12 @@ else
 
     <div class="note-meta">
         <span class="breadcrumb">@(_folderPath ?? "Top level")</span>
-        <span class="save-state" aria-live="polite">@_saveState</span>
+        <span class="note-actions">
+            <span class="save-state" aria-live="polite">@_saveState</span>
+            <MudTooltip Text="History (earlier versions)">
+                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.History" aria-label="History" OnClick="OpenHistoryAsync" />
+            </MudTooltip>
+        </span>
     </div>
 
     <input class="note-title" @ref="_titleInput" @bind="_title" @bind:after="RenameAsync" placeholder="Untitled"
@@ -50,6 +56,16 @@ else
         Events.GenerationFailed += OnGenerationFailed;
     }
 
+    private async Task OpenHistoryAsync()
+    {
+        if (_note is null) return;
+        await Dialogs.ShowAsync<HistoryDialog>(null, new DialogParameters<HistoryDialog>
+        {
+            { x => x.NoteId, _note.Id }, { x => x.NoteTitle, _title },
+        }, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true });
+        // A restore arrives as a ReplacedEdit and reloads the editor (see OnExternalEdit).
+    }
+
     // Enter in a ✨ box: the editor has already saved, so the server can see the request.
     private Task GenerateAsync(Guid noteId, string requestId)
     {
@@ -76,6 +92,11 @@ else
             if (_note?.Id != edit.NoteId || _editor is null) return;
             _note.Content = edit.NewContent;
             await _editor.ApplyEditAsync(edit);
+            if (edit is ReplacedEdit replaced)
+            {
+                _note.Title = _title = replaced.Title; // restored from History (the dialog shows its own message)
+                return;
+            }
             Snackbar.Add(edit is RequestFulfilledEdit ? "✨ Claude answered a request in this note" : "✨ Claude updated this note", Severity.Info);
         });
     }

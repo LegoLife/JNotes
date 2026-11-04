@@ -77,13 +77,25 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
         TreeChanged?.Invoke();
     }
 
-    public async Task DeleteFolderAsync(Guid id, CancellationToken ct = default)
+    public async Task<Guid> DeleteFolderAsync(Guid id, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var folder = await RequireFolder(db, id, ct);
-        db.Folders.Remove(folder); // FK cascade removes subfolders and notes
+
+        // Collect the folder's live subtree; everything goes to Trash together as one batch.
+        var all = await db.Folders.ToListAsync(ct);
+        var subtree = new List<Folder> { folder };
+        for (var i = 0; i < subtree.Count; i++)
+            subtree.AddRange(all.Where(f => f.ParentId == subtree[i].Id));
+        var folderIds = subtree.Select(f => f.Id).ToList();
+        var notes = await db.Notes.Where(n => n.FolderId != null && folderIds.Contains(n.FolderId.Value)).ToListAsync(ct);
+
+        var (now, batch) = (clock.GetUtcNow(), Guid.NewGuid());
+        foreach (var f in subtree) { f.DeletedAt = now; f.TrashBatch = batch; }
+        foreach (var n in notes) { n.DeletedAt = now; n.TrashBatch = batch; }
         await db.SaveChangesAsync(ct);
         TreeChanged?.Invoke();
+        return batch;
     }
 
     public async Task<Note?> GetNoteAsync(Guid id, CancellationToken ct = default)
@@ -142,22 +154,36 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
         await using var db = await factory.CreateDbContextAsync(ct);
         var note = await RequireNote(db, id, ct);
         if (note.Content == markdown) return;
+
+        // While editing, keep the state from before this burst of changes (at most one per interval).
+        var now = clock.GetUtcNow();
+        var cutoff = now - Retention.EditSnapshotInterval;
+        if (note.Content.Length > 0 && !await db.NoteVersions.AnyAsync(v => v.NoteId == id && v.CreatedAt > cutoff, ct))
+            db.NoteVersions.Add(new NoteVersion { NoteId = id, Title = note.Title, Content = note.Content, Reason = "While editing", CreatedAt = now });
+
         note.Content = markdown;
-        note.UpdatedAt = clock.GetUtcNow();
+        note.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task DeleteNoteAsync(Guid id, CancellationToken ct = default)
+    public async Task<Guid> DeleteNoteAsync(Guid id, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        db.Notes.Remove(await RequireNote(db, id, ct));
+        var note = await RequireNote(db, id, ct);
+        var batch = Guid.NewGuid();
+        note.DeletedAt = clock.GetUtcNow();
+        note.TrashBatch = batch;
         await db.SaveChangesAsync(ct);
         TreeChanged?.Invoke();
+        return batch;
     }
 
+    public void NotifyTreeChanged() => TreeChanged?.Invoke();
+
+    // FirstOrDefaultAsync (not FindAsync) so the "not in Trash" query filter always applies.
     private static async Task<Folder> RequireFolder(JNotesDbContext db, Guid id, CancellationToken ct) =>
-        await db.Folders.FindAsync([id], ct) ?? throw new DomainException("Folder not found.");
+        await db.Folders.FirstOrDefaultAsync(f => f.Id == id, ct) ?? throw new DomainException("Folder not found.");
 
     private static async Task<Note> RequireNote(JNotesDbContext db, Guid id, CancellationToken ct) =>
-        await db.Notes.FindAsync([id], ct) ?? throw new DomainException("Note not found.");
+        await db.Notes.FirstOrDefaultAsync(n => n.Id == id, ct) ?? throw new DomainException("Note not found.");
 }

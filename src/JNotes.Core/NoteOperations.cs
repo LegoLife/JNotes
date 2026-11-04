@@ -23,7 +23,7 @@ public sealed record PendingRequest(Guid NoteId, string NoteTitle, string NotePa
 /// The operations Claude can perform. Notes and folders are referenced by id or by name/path so the
 /// model can be forgiving; ambiguity is reported back instead of guessed.
 /// </summary>
-public sealed class NoteOperations(INoteStore notes, ITemplateStore templates, NoteFactory factory, NoteEvents events)
+public sealed class NoteOperations(INoteStore notes, ITemplateStore templates, NoteFactory factory, NoteEvents events, INoteHistory history)
 {
     private readonly SemaphoreSlim _writeGate = new(1, 1);
 
@@ -108,21 +108,21 @@ public sealed class NoteOperations(INoteStore notes, ITemplateStore templates, N
     }
 
     public Task<Note> AppendAsync(string noteReference, string markdown, CancellationToken ct = default) =>
-        EditAsync(noteReference, n =>
+        EditAsync(noteReference, "Before Claude: added to the end", n =>
         {
             var updated = AiBlocks.Append(n.Content, markdown);
             return (updated, new AppendEdit(n.Id, updated, AiBlocks.SanitizeBody(markdown)));
         }, ct);
 
     public Task<Note> ReplaceSectionAsync(string noteReference, string heading, string markdown, CancellationToken ct = default) =>
-        EditAsync(noteReference, n =>
+        EditAsync(noteReference, $"Before Claude: rewrote “{heading}”", n =>
         {
             var updated = AiBlocks.ReplaceSection(n.Content, heading, markdown);
             return (updated, new SectionEdit(n.Id, updated, heading, AiBlocks.SanitizeBody(markdown)));
         }, ct);
 
     public Task<Note> FulfillRequestAsync(string noteReference, string requestId, string markdown, CancellationToken ct = default) =>
-        EditAsync(noteReference, n =>
+        EditAsync(noteReference, "Before Claude: answered a ✨ request", n =>
         {
             var (updated, block) = AiBlocks.Fulfill(n.Content, requestId.Trim(), markdown);
             return (updated, new RequestFulfilledEdit(n.Id, updated, requestId.Trim(), block));
@@ -137,13 +137,14 @@ public sealed class NoteOperations(INoteStore notes, ITemplateStore templates, N
         return (note, PathOf(await TreeAsync(ct), folderId));
     }
 
-    private async Task<Note> EditAsync(string noteReference, Func<Note, (string Updated, NoteEdit Edit)> change, CancellationToken ct)
+    private async Task<Note> EditAsync(string noteReference, string reason, Func<Note, (string Updated, NoteEdit Edit)> change, CancellationToken ct)
     {
         await _writeGate.WaitAsync(ct);
         try
         {
             var note = await ResolveNoteAsync(noteReference, ct);
             var (updated, edit) = change(note);
+            await history.SnapshotAsync(note.Id, reason, ct); // so any Claude edit can be undone from History
             await notes.SaveContentAsync(note.Id, updated, ct);
             note.Content = updated;
             events.Raise(edit);
