@@ -178,6 +178,15 @@ public sealed class NoteStore(IDbContextFactory<JNotesDbContext> factory, TimePr
         return batch;
     }
 
+    public async Task SetTimestampsAsync(Guid id, DateTimeOffset createdAt, DateTimeOffset updatedAt, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var note = await RequireNote(db, id, ct);
+        note.CreatedAt = createdAt;
+        note.UpdatedAt = updatedAt;
+        await db.SaveChangesAsync(ct);
+    }
+
     public void NotifyTreeChanged() => TreeChanged?.Invoke();
 
     // FirstOrDefaultAsync (not FindAsync) so the "not in Trash" query filter always applies.

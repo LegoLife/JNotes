@@ -20,6 +20,8 @@ public interface INoteStore
     Task RenameNoteAsync(Guid id, string title, CancellationToken ct = default);
     Task MoveNoteAsync(Guid id, Guid? folderId, CancellationToken ct = default);
     Task SaveContentAsync(Guid id, string markdown, CancellationToken ct = default);
+    /// <summary>Sets original dates (used when importing from another app).</summary>
+    Task SetTimestampsAsync(Guid id, DateTimeOffset createdAt, DateTimeOffset updatedAt, CancellationToken ct = default);
     /// <summary>Moves the note to Trash. Returns the trash batch (for Undo).</summary>
     Task<Guid> DeleteNoteAsync(Guid id, CancellationToken ct = default);
 

@@ -24,6 +24,10 @@ else
         <span class="breadcrumb">@(_folderPath ?? "Top level")</span>
         <span class="note-actions">
             <span class="save-state" aria-live="polite">@_saveState</span>
+            <MudTooltip Text="Download as Markdown">
+                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.FileDownload" aria-label="Download as Markdown"
+                               Href="@($"export/notes/{noteId}")" Target="_blank" />
+            </MudTooltip>
             <MudTooltip Text="History (earlier versions)">
                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Outlined.History" aria-label="History" OnClick="OpenHistoryAsync" />
             </MudTooltip>

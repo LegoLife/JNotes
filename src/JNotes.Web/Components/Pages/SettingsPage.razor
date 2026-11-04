@@ -37,7 +37,16 @@
 <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Backup" Class="mt-3"
            Disabled="_running" OnClick="BackupNowAsync">@(_running ? "Backing up…" : "Back up now")</MudButton>
 
-<MudExpansionPanels Elevation="0" Class="mt-6">
+<MudText Typo="Typo.h6" Class="mt-8 mb-2">Export</MudText>
+<MudText Typo="Typo.body2" Class="mb-3 text-secondary">
+    Download all your notes as plain Markdown files in their folders, with images, in one zip. It opens in any Markdown app
+    (Obsidian, VS Code, …) and can be imported back into JNotes. Single notes can be downloaded from the note's toolbar.
+</MudText>
+<MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Archive" Href="export/vault" Target="_blank">
+    Download all notes (.zip)
+</MudButton>
+
+<MudExpansionPanels Elevation="0" Class="mt-8">
     <MudExpansionPanel Text="Set up the Google Drive copy (on the Pi)">
         <ol class="claude-steps">
             <li>On a computer with a web browser, install <a href="https://rclone.org/downloads/" target="_blank" rel="noopener">rclone</a> and run

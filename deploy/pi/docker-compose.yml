@@ -1,0 +1,28 @@
+# JNotes on the Raspberry Pi (prebuilt image, data on the external drive).
+# Lives at ~/jnotes on the Pi together with .env (secrets) and the helper scripts.
+services:
+  jnotes:
+    image: jnotes:latest
+    container_name: jnotes
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      JNotes__PasswordHash: ${JNOTES_PASSWORD_HASH:?Run ./set-password.sh first}
+      JNotes__McpToken: ${JNOTES_MCP_TOKEN:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      TZ: ${TZ:-America/New_York}
+    volumes:
+      - /mnt/data/jnotes:/data
+
+  # Optional hourly copy to Google Drive — see Settings in JNotes.
+  rclone:
+    image: rclone/rclone:1.71.2
+    container_name: jnotes-rclone
+    profiles: ["backup"]
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/sync.sh"]
+    volumes:
+      - /mnt/data/jnotes:/data
+      - ./rclone:/config/rclone
+      - ./rclone-sync.sh:/sync.sh:ro
