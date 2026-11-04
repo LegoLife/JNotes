@@ -17,7 +17,7 @@ public sealed class NoteTreeIndex
 
     public TreeEntry? Find(Guid id) => _byId.GetValueOrDefault(id);
 
-    /// <summary>Children in stored order (folders first, then notes, each alphabetical).</summary>
+    /// <summary>Children in display order (custom order; unordered items folders first, then alphabetical).</summary>
     public IReadOnlyList<TreeEntry> ChildrenOf(Guid? parentId) =>
         _children.TryGetValue(parentId ?? Guid.Empty, out var c) ? c : [];
 

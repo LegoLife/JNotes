@@ -9,6 +9,9 @@ public sealed class Folder
     /// <summary>Template pre-selected when creating a note in this folder.</summary>
     public Guid? DefaultTemplateId { get; set; }
 
+    /// <summary>Position among its siblings (folders and notes share one order). 0 = not custom-ordered.</summary>
+    public int SortOrder { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
@@ -22,6 +25,9 @@ public sealed class Note
     public Guid Id { get; set; } = Guid.NewGuid();
     public required string Title { get; set; }
     public Guid? FolderId { get; set; }
+
+    /// <summary>Position among its siblings (folders and notes share one order). 0 = not custom-ordered.</summary>
+    public int SortOrder { get; set; }
 
     /// <summary>Markdown — the source of truth for the document body.</summary>
     public string Content { get; set; } = "";
