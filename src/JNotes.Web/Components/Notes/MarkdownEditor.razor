@@ -1,5 +1,6 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject INoteStore Store
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
 
@@ -93,6 +94,25 @@
     public async Task SetRequestStatusAsync(string requestId, string? status)
     {
         if (_editor is not null) await _editor.InvokeAsync<bool>("setRequestStatus", requestId, status);
+    }
+
+    public sealed record NoteMatch(Guid Id, string Title, string Path);
+
+    /// <summary>Notes for the [[ link picker: recent notes for an empty query, else ranked title matches.</summary>
+    [JSInvokable]
+    public async Task<List<NoteMatch>> FindNotes(string query)
+    {
+        var tree = await Store.GetTreeAsync();
+        var index = new NoteTreeIndex(tree);
+        string PathOf(Guid? f) => f is { } id && index.Find(id) is not null ? index.PathOf(id) : "";
+        var q = query.Trim();
+        if (q.Length == 0)
+            return (await Store.GetRecentNotesAsync(8)).Select(n => new NoteMatch(n.Id, n.Title, PathOf(n.FolderId))).ToList();
+        return tree.Where(e => !e.IsFolder)
+            .Select(e => (e, rank: QuickSwitcher.Rank(e.Name, q)))
+            .Where(x => x.rank < 3)
+            .OrderBy(x => x.rank).ThenBy(x => x.e.Name.Length).ThenBy(x => x.e.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Take(10).Select(x => new NoteMatch(x.e.Id, x.e.Name, PathOf(x.e.ParentId))).ToList();
     }
 
     [JSInvokable]

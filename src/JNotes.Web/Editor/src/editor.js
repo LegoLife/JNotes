@@ -1,6 +1,7 @@
 // Thin Tiptap wrapper used by MarkdownEditor.razor via JS interop.
 // Markdown is the source of truth: content goes in as markdown and comes back out as markdown.
-import { Editor, Node, mergeAttributes, textblockTypeInputRule } from '@tiptap/core';
+import { Editor, Extension, Node, mergeAttributes, textblockTypeInputRule } from '@tiptap/core';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { Placeholder } from '@tiptap/extensions';
@@ -240,6 +241,130 @@ const remoteEdits = {
   },
 };
 
+// ---------- [[ note links ----------
+// Typing "[[" opens a picker of notes; choosing one inserts a normal markdown link [Title](/notes/{id}).
+const NOTE_LINK_TRIGGER = /\[\[([^\[\]\n]{0,80})$/;
+
+const NoteLinkPicker = Extension.create({
+  name: 'noteLinkPicker',
+  addOptions: () => ({ findNotes: null }),
+  addProseMirrorPlugins() {
+    const findNotes = this.options.findNotes;
+    if (!findNotes) return [];
+    const editor = this.editor;
+
+    const popup = document.createElement('div');
+    popup.className = 'note-link-picker';
+    popup.setAttribute('role', 'listbox');
+    popup.hidden = true;
+    document.body.appendChild(popup);
+
+    let state = null;       // { from, to, query } while "[[query" is right before the cursor
+    let items = [];
+    let selected = 0;
+    let dismissedAt = null; // start of a trigger the user closed with Esc
+    let seq = 0;
+
+    const close = () => { state = null; items = []; seq++; popup.hidden = true; };
+
+    const render = () => {
+      popup.replaceChildren();
+      if (items.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'nlp-empty';
+        empty.textContent = state?.query ? 'No matching notes' : 'Type to search notes…';
+        popup.append(empty);
+      }
+      items.forEach((item, i) => {
+        const row = document.createElement('div');
+        row.className = 'nlp-item' + (i === selected ? ' selected' : '');
+        row.setAttribute('role', 'option');
+        const title = document.createElement('span');
+        title.className = 'nlp-title';
+        title.textContent = item.title;
+        const path = document.createElement('span');
+        path.className = 'nlp-path';
+        path.textContent = item.path;
+        row.append(title, path);
+        row.addEventListener('mousedown', (e) => { e.preventDefault(); choose(i); });
+        row.addEventListener('mouseenter', () => { if (selected !== i) { selected = i; render(); } });
+        popup.append(row);
+      });
+      popup.querySelector('.selected')?.scrollIntoView({ block: 'nearest' });
+    };
+
+    const position = (view) => {
+      const c = view.coordsAtPos(state.from);
+      popup.style.left = `${Math.max(8, Math.min(c.left, window.innerWidth - 328))}px`;
+      popup.style.top = `${c.bottom + 4}px`;
+    };
+
+    const search = (query) => {
+      const mine = ++seq;
+      findNotes(query).then((result) => {
+        if (mine !== seq || !state) return;
+        items = result ?? [];
+        selected = 0;
+        render();
+      }).catch(console.error);
+    };
+
+    const choose = (i) => {
+      const item = items[i];
+      if (!item || !state) return;
+      const { from, to } = state;
+      close();
+      editor.chain().focus().insertContentAt({ from, to }, [
+        { type: 'text', text: item.title, marks: [{ type: 'link', attrs: { href: `/notes/${item.id}` } }] },
+        { type: 'text', text: ' ' },
+      ]).unsetMark('link').run();
+    };
+
+    return [new Plugin({
+      key: new PluginKey('noteLinkPicker'),
+      view: () => ({
+        update: (view) => {
+          const sel = view.state.selection;
+          const $from = sel.$from;
+          const match = sel.empty && !$from.parent.type.spec.code
+            ? NOTE_LINK_TRIGGER.exec($from.parent.textBetween(0, $from.parentOffset, undefined, '￼'))
+            : null;
+          if (!match) { dismissedAt = null; if (state) close(); return; }
+          const from = $from.pos - match[0].length;
+          if (from === dismissedAt) return;
+          const query = match[1];
+          const changed = !state || state.query !== query;
+          state = { from, to: $from.pos, query };
+          popup.hidden = false;
+          position(view);
+          if (changed) { render(); search(query); }
+        },
+        destroy: () => popup.remove(),
+      }),
+      props: {
+        handleKeyDown: (_view, e) => {
+          if (!state) return false;
+          switch (e.key) {
+            case 'ArrowDown': if (items.length) { selected = (selected + 1) % items.length; render(); } return true;
+            case 'ArrowUp': if (items.length) { selected = (selected - 1 + items.length) % items.length; render(); } return true;
+            case 'Enter': case 'Tab': if (items.length) { choose(selected); return true; } return false;
+            case 'Escape': dismissedAt = state.from; close(); return true;
+            default: return false;
+          }
+        },
+        handleDOMEvents: { blur: () => { close(); return false; } },
+      },
+    })];
+  },
+});
+
+// Clicking a link to another note opens it (Ctrl/Cmd/middle-click: new tab). Other links stay plain editable text.
+function noteHrefAt(event) {
+  const a = event.target instanceof Element ? event.target.closest('a[href]') : null;
+  const href = a?.getAttribute('href') ?? '';
+  return /^\/notes\/[0-9a-f-]{36}$/i.test(href) ? href : null;
+}
+
 // Tiptap writes empty paragraphs as "&nbsp;" lines to preserve them; in markdown they're just noise.
 const cleanMarkdown = (md) => md.replace(/^&nbsp;[ \t]*$\n?/gm, '').replace(/\n{3,}/g, '\n\n');
 
@@ -311,6 +436,7 @@ export function create(element, dotnetRef, markdown, options) {
           : null,
       }),
       AiResult,
+      NoteLinkPicker.configure({ findNotes: (q) => dotnetRef.invokeMethodAsync('FindNotes', q) }),
       Image.configure({ allowBase64: false }),
       YouTubeEmbed,
       TableKit.configure({ table: { resizable: false } }),
@@ -327,6 +453,26 @@ export function create(element, dotnetRef, markdown, options) {
     ],
     content: markdown ?? '',
     contentType: 'markdown',
+    editorProps: {
+      handleDOMEvents: {
+        click: (_view, event) => {
+          const href = noteHrefAt(event);
+          if (!href || event.button !== 0) return false;
+          event.preventDefault();
+          if (event.ctrlKey || event.metaKey) window.open(href, '_blank');
+          else if (window.Blazor?.navigateTo) window.Blazor.navigateTo(href);
+          else window.location.href = href;
+          return true;
+        },
+        auxclick: (_view, event) => {
+          const href = noteHrefAt(event);
+          if (!href || event.button !== 1) return false;
+          event.preventDefault();
+          window.open(href, '_blank');
+          return true;
+        },
+      },
+    },
     onUpdate: () => {
       dirty = true;
       clearTimeout(timer);

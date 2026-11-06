@@ -289,3 +289,18 @@ kbd {
     .login-card label { color: #9aa5b1; }
     .login-card input { background: #22252b; color: inherit; border-color: #3e4450; }
 }
+
+/* [[ note-link picker */
+.note-link-picker {
+    position: fixed; z-index: 2000; width: 320px; max-height: 280px; overflow-y: auto;
+    background: var(--mud-palette-surface); color: var(--mud-palette-text-primary);
+    border: 1px solid var(--mud-palette-lines-default); border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 4px;
+}
+.note-link-picker .nlp-item { display: flex; flex-direction: column; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.note-link-picker .nlp-item.selected { background: var(--mud-palette-action-default-hover); }
+.note-link-picker .nlp-title, .note-link-picker .nlp-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-link-picker .nlp-path { font-size: .75rem; color: var(--mud-palette-text-secondary); }
+.note-link-picker .nlp-path:empty { display: none; }
+.note-link-picker .nlp-empty { padding: 6px 10px; color: var(--mud-palette-text-secondary); font-size: .85rem; }
+.editor-host .ProseMirror a[href^="/notes/"] { cursor: pointer; }
