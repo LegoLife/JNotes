@@ -365,6 +365,21 @@ function noteHrefAt(event) {
   return /^\/notes\/[0-9a-f-]{36}$/i.test(href) ? href : null;
 }
 
+// Any link in the editor: note links navigate in-app; external links only open on Ctrl/middle click.
+function linkHrefAt(event) {
+  const a = event.target instanceof Element ? event.target.closest('a[href]') : null;
+  return a?.getAttribute('href') || null;
+}
+
+// "example.com" -> "https://example.com"; leaves schemes, /paths, #anchors and mail addresses alone.
+function normalizeHref(url) {
+  const u = (url ?? '').trim();
+  if (!u) return '';
+  if (/^[a-z][a-z0-9+.-]*:/i.test(u) || u.startsWith('/') || u.startsWith('#')) return u;
+  if (/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(u)) return `mailto:${u}`;
+  return `https://${u}`;
+}
+
 // Tiptap writes empty paragraphs as "&nbsp;" lines to preserve them; in markdown they're just noise.
 const cleanMarkdown = (md) => md.replace(/^&nbsp;[ \t]*$\n?/gm, '').replace(/\n{3,}/g, '\n\n');
 
@@ -436,6 +451,12 @@ export function create(element, dotnetRef, markdown, options) {
           : null,
       }),
       AiResult,
+      Extension.create({
+        name: 'linkShortcut',
+        addKeyboardShortcuts: () => ({
+          'Mod-l': () => { dotnetRef.invokeMethodAsync('RequestLink').catch(reportError); return true; },
+        }),
+      }),
       NoteLinkPicker.configure({ findNotes: (q) => dotnetRef.invokeMethodAsync('FindNotes', q) }),
       Image.configure({ allowBase64: false }),
       YouTubeEmbed,
@@ -456,8 +477,15 @@ export function create(element, dotnetRef, markdown, options) {
     editorProps: {
       handleDOMEvents: {
         click: (_view, event) => {
+          if (event.button !== 0) return false;
           const href = noteHrefAt(event);
-          if (!href || event.button !== 0) return false;
+          if (!href) {
+            const ext = (event.ctrlKey || event.metaKey) ? linkHrefAt(event) : null;
+            if (!ext) return false;
+            event.preventDefault();
+            window.open(ext, '_blank', 'noopener');
+            return true;
+          }
           event.preventDefault();
           if (event.ctrlKey || event.metaKey) window.open(href, '_blank');
           else if (window.Blazor?.navigateTo) window.Blazor.navigateTo(href);
@@ -465,7 +493,7 @@ export function create(element, dotnetRef, markdown, options) {
           return true;
         },
         auxclick: (_view, event) => {
-          const href = noteHrefAt(event);
+          const href = linkHrefAt(event);
           if (!href || event.button !== 1) return false;
           event.preventDefault();
           window.open(href, '_blank');
@@ -514,6 +542,17 @@ export function create(element, dotnetRef, markdown, options) {
     undo: () => editor.chain().focus().undo().run(),
     redo: () => editor.chain().focus().redo().run(),
     youtube: (url) => editor.chain().focus().setYoutubeVideo({ src: url }).run(),
+    // Hyperlinks: getLink reads the link under the cursor; link(url) sets/edits it (empty url removes it).
+    getLink: () => editor.getAttributes('link').href ?? '',
+    link: (url) => {
+      const href = normalizeHref(url);
+      const chain = editor.chain().focus();
+      if (!href) return chain.extendMarkRange('link').unsetLink().run();
+      if (editor.state.selection.empty && !editor.isActive('link'))
+        return chain.insertContent({ type: 'text', text: url.trim(), marks: [{ type: 'link', attrs: { href } }] }).run();
+      return chain.extendMarkRange('link').setLink({ href }).run();
+    },
+    unlink: () => editor.chain().focus().extendMarkRange('link').unsetLink().run(),
     aiRequest: () => editor.chain().focus().setNode('aiRequest', { id: newRequestId() }).run(),
   };
 
