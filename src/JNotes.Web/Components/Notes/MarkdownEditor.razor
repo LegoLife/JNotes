@@ -18,6 +18,12 @@
         </div>
     }
     <div class="tb-group">
+        <MudTooltip Text="Insert/edit link (Ctrl+L)" Delay="500">
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Link" aria-label="Insert link" OnClick="InsertLinkAsync" />
+        </MudTooltip>
+        <MudTooltip Text="Remove link" Delay="500">
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.LinkOff" aria-label="Remove link" OnClick="@(() => ExecAsync("unlink"))" />
+        </MudTooltip>
         <MudTooltip Text="Insert image" Delay="500">
             <label class="tb-file mud-icon-button" aria-label="Insert image">
                 <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden @ref="_fileInput" />
@@ -143,6 +149,23 @@
     private async Task ExecAsync(string command)
     {
         if (_editor is not null) await _editor.InvokeAsync<bool>("exec", command, null);
+    }
+
+    [JSInvokable]
+    public Task RequestLink() => InvokeAsync(InsertLinkAsync);
+
+    private async Task InsertLinkAsync()
+    {
+        if (_editor is null) return;
+        var current = await _editor.InvokeAsync<string>("exec", "getLink", null);
+        var dialog = await Dialogs.ShowAsync<NameDialog>(null, new DialogParameters<NameDialog>
+        {
+            { x => x.Title, string.IsNullOrEmpty(current) ? "Insert link" : "Edit link" },
+            { x => x.Label, "URL (e.g. https://example.com)" }, { x => x.ConfirmText, "Save" },
+            { x => x.Value, current ?? "" }, { x => x.MaxLength, 2000 },
+        }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is not { Canceled: false, Data: string url }) return;
+        await _editor.InvokeAsync<bool>("exec", "link", url.Trim());
     }
 
     private async Task InsertYouTubeAsync()
