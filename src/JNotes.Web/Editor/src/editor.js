@@ -365,7 +365,7 @@ function noteHrefAt(event) {
   return /^\/notes\/[0-9a-f-]{36}$/i.test(href) ? href : null;
 }
 
-// Any link in the editor: note links navigate in-app; external links only open on Ctrl/middle click.
+// Any link in the editor: note links navigate in-app; external links open in a new tab.
 function linkHrefAt(event) {
   const a = event.target instanceof Element ? event.target.closest('a[href]') : null;
   return a?.getAttribute('href') || null;
@@ -480,7 +480,7 @@ export function create(element, dotnetRef, markdown, options) {
           if (event.button !== 0) return false;
           const href = noteHrefAt(event);
           if (!href) {
-            const ext = (event.ctrlKey || event.metaKey) ? linkHrefAt(event) : null;
+            const ext = linkHrefAt(event);
             if (!ext) return false;
             event.preventDefault();
             window.open(ext, '_blank', 'noopener');
