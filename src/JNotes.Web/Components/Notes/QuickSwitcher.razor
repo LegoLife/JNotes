@@ -76,7 +76,7 @@
         _items.Add(new Item(null, $"Search all notes for “{q}”", ""));
     }
 
-    private static int Rank(string title, string q)
+    internal static int Rank(string title, string q)
     {
         if (title.StartsWith(q, StringComparison.CurrentCultureIgnoreCase)) return 0;
         var i = title.IndexOf(q, StringComparison.CurrentCultureIgnoreCase);
