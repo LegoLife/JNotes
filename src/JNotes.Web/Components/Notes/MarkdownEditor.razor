@@ -89,7 +89,7 @@
     {
         if (!firstRender) return;
         _self = DotNetObjectReference.Create(this);
-        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/editor.js");
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./" + Assets["js/editor.js"]);
         _editor = await _module.InvokeAsync<IJSObjectReference>("create", _host, _self, Markdown,
             new { debounceMs = 1000, fileInput = _fileInput, canGenerate = GenerateAsync is not null });
     }
