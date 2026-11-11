@@ -30,6 +30,12 @@
                 <MudIcon Icon="@Icons.Material.Outlined.Image" Size="Size.Small" />
             </label>
         </MudTooltip>
+        <MudTooltip Text="Attach file" Delay="500">
+            <label class="tb-file mud-icon-button" aria-label="Attach file">
+                <input type="file" multiple hidden @ref="_attachInput" />
+                <MudIcon Icon="@Icons.Material.Filled.AttachFile" Size="Size.Small" />
+            </label>
+        </MudTooltip>
         <MudTooltip Text="Embed YouTube video" Delay="500">
             <MudIconButton Size="Size.Small" Icon="@Icons.Custom.Brands.YouTube" aria-label="Embed YouTube video" OnClick="InsertYouTubeAsync" />
         </MudTooltip>
@@ -81,6 +87,7 @@
 
     private ElementReference _host;
     private ElementReference _fileInput;
+    private ElementReference _attachInput;
     private IJSObjectReference? _module;
     private IJSObjectReference? _editor;
     private DotNetObjectReference<MarkdownEditor>? _self;
@@ -91,7 +98,7 @@
         _self = DotNetObjectReference.Create(this);
         _module = await JS.InvokeAsync<IJSObjectReference>("import", "./" + Assets["js/editor.js"]);
         _editor = await _module.InvokeAsync<IJSObjectReference>("create", _host, _self, Markdown,
-            new { debounceMs = 1000, fileInput = _fileInput, canGenerate = GenerateAsync is not null });
+            new { debounceMs = 1000, fileInput = _fileInput, attachInput = _attachInput, canGenerate = GenerateAsync is not null });
     }
 
     [JSInvokable]

@@ -21,7 +21,8 @@ user's Claude subscription — no LLM API keys.
   Documents may also live at the root.
 - WYSIWYG markdown editing, autosave (~1s debounce).
 - **YouTube**: paste a URL → embedded player; stored in markdown as a bare URL on its own line.
-- **Images**: paste/drag → stored in `/data/attachments`, served by the app. Other file types out of scope.
+- **Images**: paste/drag → stored in `/data/attachments`, served by the app.
+- **File attachments** (any type, ≤200 MB): paperclip button or drag/paste → stored as `/data/attachments/{guid}/{name}`, inserted as a `📎 name` link. PDFs/text/media open in the browser; everything else downloads. Exported under `attachments/` and re-imported.
 - **Templates**: variables `{{title}}`, `{{date}}`, `{{folder}}`; a folder can set a default
   template; templates may contain pending AI blocks.
 - **Search**: Ctrl+K title quick-switcher; full-text search page (FTS5) with highlighted

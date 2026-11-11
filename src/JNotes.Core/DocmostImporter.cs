@@ -150,13 +150,13 @@ public sealed partial class DocmostImporter(INoteStore notes, AttachmentStore at
         return $"![{alt}]({stored})";
     }
 
-    // Links to attachment files: images are imported; other files (PDFs etc.) aren't supported yet.
+    // Links to attachment files: images become inline images; any other file is stored and linked.
     private async Task<string> RewriteAttachmentLinkAsync(Run run, string dir, Match m, string title, CancellationToken ct)
     {
         var url = m.Groups["url"].Value;
         if (IsExternal(url) || url.StartsWith('#')) return m.Value;
         var path = Resolve(dir, url);
-        if (path is null || path.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || !run.Files.ContainsKey(path))
+        if (path is null || (path.EndsWith(".md", StringComparison.OrdinalIgnoreCase) && !AttachmentPath().IsMatch(path)) || !run.Files.ContainsKey(path))
             return m.Value; // internal page link (handled in pass 2) or unknown
 
         var text = m.Groups["text"].Value;
@@ -167,8 +167,23 @@ public sealed partial class DocmostImporter(INoteStore notes, AttachmentStore at
             if (AttachmentStore.SniffExtension(head.AsSpan(0, n)) is not null)
                 return await ImportImageAsync(run, dir, MarkdownImage().Match($"![{text}]({url})"), title, ct);
         }
-        run.Warnings.Add($"“{title}”: attachment “{LastSegment(path)}” wasn't imported (only images are supported).");
-        return text;
+        if (!run.ImageCache.TryGetValue(path, out var stored))
+        {
+            try
+            {
+                await using var s = await run.Files[path].OpenAsync(ct);
+                var name = await attachments.SaveFileAsync(s, Uri.UnescapeDataString(LastSegment(path)), ct);
+                var slash = name.IndexOf('/');
+                stored = AttachmentStore.UrlPrefix + name[..slash] + "/" + Uri.EscapeDataString(name[(slash + 1)..]);
+                run.ImageCache[path] = stored;
+            }
+            catch (DomainException ex)
+            {
+                run.Warnings.Add($"“{title}”: skipped attachment {LastSegment(path)} — {ex.Message}");
+                return text;
+            }
+        }
+        return $"[{text}]({stored})";
     }
 
     // Pass 2: once every page has an id, point relative .md links at /notes/{id}.
@@ -338,7 +353,7 @@ public sealed partial class DocmostImporter(INoteStore notes, AttachmentStore at
         return n.Length > Names.MaxLength ? n[..Names.MaxLength] : n;
     }
 
-    [GeneratedRegex(@"(^|/)files/[0-9a-fA-F-]{8,}/", RegexOptions.IgnoreCase)] private static partial Regex AttachmentPath();
+    [GeneratedRegex(@"(^|/)(files/[0-9a-fA-F-]{8,}|attachments/[0-9a-f]{32})/", RegexOptions.IgnoreCase)] private static partial Regex AttachmentPath();
     [GeneratedRegex(@"^\s*#\s+(.*)\n*")] private static partial Regex LeadingH1();
     [GeneratedRegex(@"!\[(?<alt>[^\]]*)\]\((?<url>[^)\s]+)(?:\s+""[^""]*"")?\)")] private static partial Regex MarkdownImage();
     [GeneratedRegex(@"(?<!!)\[(?<text>[^\]]*)\]\((?<url>[^)\s]+)(?:\s+""[^""]*"")?\)")] private static partial Regex MarkdownLink();

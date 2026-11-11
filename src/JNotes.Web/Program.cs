@@ -109,7 +109,7 @@ app.MapPost("/logout", async (HttpContext ctx) =>
     return Results.Redirect("/login");
 });
 
-// Images: uploaded as a raw request body (type sniffed server-side), served only to the signed-in user.
+// Attachments. Images: uploaded as a raw request body (type sniffed server-side), served only to the signed-in user.
 var attachmentsApi = app.MapGroup("/attachments").RequireAuthorization();
 attachmentsApi.MapPost("", async (HttpRequest request, AttachmentStore store, CancellationToken ct) =>
 {
@@ -122,6 +122,35 @@ attachmentsApi.MapPost("", async (HttpRequest request, AttachmentStore store, Ca
     {
         return Results.Text(ex.Message, statusCode: StatusCodes.Status400BadRequest);
     }
+});
+// Any other file: raw body, original name in ?name=; stored as {guid}/{name}.
+attachmentsApi.MapPost("files", async (HttpContext context, string? name, AttachmentStore store, CancellationToken ct) =>
+{
+    if (context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+        limit.MaxRequestBodySize = AttachmentStore.MaxFileBytes;
+    if (string.IsNullOrWhiteSpace(name)) return Results.Text("A file name is required.", statusCode: StatusCodes.Status400BadRequest);
+    try
+    {
+        var stored = await store.SaveFileAsync(context.Request.Body, name, ct);
+        var slash = stored.IndexOf('/');
+        return Results.Ok(new { url = AttachmentStore.UrlPrefix + stored[..slash] + "/" + Uri.EscapeDataString(stored[(slash + 1)..]), name = stored[(slash + 1)..] });
+    }
+    catch (DomainException ex)
+    {
+        return Results.Text(ex.Message, statusCode: StatusCodes.Status400BadRequest);
+    }
+});
+attachmentsApi.MapGet("{id}/{name}", (string id, string name, AttachmentStore store, HttpResponse response) =>
+{
+    if (store.GetFilePath(id, name) is not { } path) return Results.NotFound();
+    response.Headers.CacheControl = "private, max-age=31536000, immutable";
+    response.Headers.XContentTypeOptions = "nosniff";
+    // PDFs and plain text open in the browser; everything else downloads (never rendered as HTML/SVG from our origin).
+    var inline = AttachmentStore.InlineContentTypeFor(name);
+    if (inline is null)
+        return Results.File(path, "application/octet-stream", name, enableRangeProcessing: true);
+    response.Headers.ContentDisposition = new System.Net.Mime.ContentDisposition { Inline = true, FileName = name }.ToString();
+    return Results.File(path, inline, enableRangeProcessing: true);
 });
 attachmentsApi.MapGet("{name}", (string name, AttachmentStore store, HttpResponse response) =>
 {

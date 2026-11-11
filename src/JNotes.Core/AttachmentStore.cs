@@ -2,10 +2,14 @@ using System.Text.RegularExpressions;
 
 namespace JNotes.Core;
 
-/// <summary>Stores uploaded images as files named {guid}.{ext}. The type is sniffed from the bytes, never trusted from the client.</summary>
+/// <summary>
+/// Stores uploaded images as files named {guid}.{ext} (type sniffed from the bytes, never trusted from the client),
+/// and any other file as {guid}/{original name}, addressed as <c>/attachments/{guid}/{name}</c>.
+/// </summary>
 public sealed partial class AttachmentStore
 {
     public const long MaxBytes = 20 * 1024 * 1024;
+    public const long MaxFileBytes = 200 * 1024 * 1024;
     public const string UrlPrefix = "/attachments/";
 
     private readonly string _directory;
@@ -38,6 +42,39 @@ public sealed partial class AttachmentStore
         return name;
     }
 
+    /// <summary>Saves any file under its (sanitised) original name and returns its relative name "{guid}/{name}".</summary>
+    public async Task<string> SaveFileAsync(Stream content, string fileName, CancellationToken ct = default)
+    {
+        var safe = SafeFileName(fileName);
+        var id = Guid.NewGuid().ToString("N");
+        var dir = Path.Combine(_directory, id);
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, safe);
+        var temp = Path.Combine(dir, ".upload.tmp");
+        try
+        {
+            await using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
+            {
+                var chunk = new byte[81920];
+                long total = 0;
+                int read;
+                while ((read = await content.ReadAsync(chunk, ct)) > 0)
+                {
+                    total += read;
+                    if (total > MaxFileBytes) throw new DomainException($"Files must be under {MaxFileBytes / 1024 / 1024} MB.");
+                    await fs.WriteAsync(chunk.AsMemory(0, read), ct);
+                }
+            }
+            File.Move(temp, path);
+            return $"{id}/{safe}";
+        }
+        catch
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+            throw;
+        }
+    }
+
     /// <summary>Full path for a stored attachment, or null if the name is invalid or missing.</summary>
     public string? GetPath(string name)
     {
@@ -46,7 +83,30 @@ public sealed partial class AttachmentStore
         return File.Exists(path) ? path : null;
     }
 
+    /// <summary>Full path for a stored file attachment ("{guid}/{name}"), or null if invalid or missing.</summary>
+    public string? GetFilePath(string id, string name)
+    {
+        if (!FileIdPattern().IsMatch(id) || name != SafeFileName(name)) return null;
+        var path = Path.Combine(_directory, id, name);
+        return File.Exists(path) ? path : null;
+    }
+
     public static bool IsValidName(string name) => NamePattern().IsMatch(name);
+
+    /// <summary>A file name that is safe on disk and in a URL segment: no path parts, control or reserved characters.</summary>
+    public static string SafeFileName(string name)
+    {
+        name = name.Replace('\\', '/');
+        name = name[(name.LastIndexOf('/') + 1)..];
+        var cleaned = UnsafeFileChars().Replace(name, "_").Trim().TrimEnd('.').Trim();
+        if (cleaned.Length > 150)
+        {
+            var ext = Path.GetExtension(cleaned);
+            if (ext.Length > 20) ext = "";
+            cleaned = cleaned[..(150 - ext.Length)].TrimEnd() + ext;
+        }
+        return cleaned.Length == 0 || cleaned.StartsWith('.') ? "file" + cleaned : cleaned;
+    }
 
     public static string ContentTypeFor(string name) => Path.GetExtension(name) switch
     {
@@ -55,6 +115,20 @@ public sealed partial class AttachmentStore
         ".gif" => "image/gif",
         ".webp" => "image/webp",
         _ => "application/octet-stream",
+    };
+
+    /// <summary>Content type for file attachments that are safe to show in the browser; null = download only.</summary>
+    public static string? InlineContentTypeFor(string name) => Path.GetExtension(name).ToLowerInvariant() switch
+    {
+        ".pdf" => "application/pdf",
+        ".txt" or ".log" or ".md" or ".csv" or ".json" => "text/plain; charset=utf-8",
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".mp3" => "audio/mpeg",
+        ".mp4" => "video/mp4",
+        _ => null,
     };
 
     public static string? SniffExtension(ReadOnlySpan<byte> b)
@@ -68,4 +142,10 @@ public sealed partial class AttachmentStore
 
     [GeneratedRegex(@"^[0-9a-f]{32}\.(png|jpg|gif|webp)$")]
     private static partial Regex NamePattern();
+
+    [GeneratedRegex(@"^[0-9a-f]{32}$")]
+    private static partial Regex FileIdPattern();
+
+    [GeneratedRegex(@"[\x00-\x1f\x7f<>:""/\\|?*%#]")]
+    private static partial Regex UnsafeFileChars();
 }
