@@ -81,7 +81,7 @@ public sealed class NoteTools(NoteOperations ops, INoteStore store, INoteSearch 
 
     [McpServerTool(Name = "read_attachment", ReadOnly = true, Destructive = false)]
     [Description("Reads a file or image attached to a note, by the /attachments/… url from the note's markdown or list_attachments. "
-        + "Images are returned as images. PDFs, Word (.docx) and text-like files (txt, md, csv, json, code…) are returned as text, "
+        + "Images are returned as images. PDFs, EPUB books, Word (.docx) and text-like files (txt, md, csv, json, code…) are returned as text, "
         + "up to 50,000 characters per call; if more remains, call again with the offset given. Other types (zip, audio, video…) can't be read.")]
     public Task<CallToolResult> ReadAttachment(
         [Description("The attachment url, e.g. /attachments/0123…/Report.pdf")] string url,

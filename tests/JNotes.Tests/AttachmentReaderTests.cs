@@ -67,6 +67,34 @@ public class AttachmentReaderTests
     }
 
     [Fact]
+    public async Task Reads_epub_chapters_in_spine_order()
+    {
+        using var buffer = new MemoryStream();
+        using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, true))
+        {
+            async Task Add(string name, string content)
+            {
+                await using var s = await zip.CreateEntry(name).OpenAsync();
+                await s.WriteAsync(Encoding.UTF8.GetBytes(content));
+            }
+            await Add("mimetype", "application/epub+zip");
+            await Add("META-INF/container.xml", """<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>""");
+            await Add("OEBPS/content.opf", """
+                <package xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Dune</dc:title></metadata>
+                <manifest><item id="c2" href="text/ch2.xhtml"/><item id="c1" href="text/ch1.xhtml"/></manifest>
+                <spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>
+                """);
+            await Add("OEBPS/text/ch1.xhtml", "<html><head><title>x</title><style>p{}</style></head><body><h1>Chapter 1</h1><p>A beginning is a <i>very</i> delicate time.</p></body></html>");
+            await Add("OEBPS/text/ch2.xhtml", "<html><body><h1>Chapter 2</h1><p>Fear &amp; the mind-killer.</p></body></html>");
+        }
+        await using var db = await TestDb.CreateAsync();
+        var url = await SaveAsync(db, buffer.ToArray(), "Dune.epub");
+
+        var text = Assert.IsType<AttachmentContent.Text>(await new AttachmentReader(db.Attachments).ReadAsync(url));
+        Assert.Equal("# Dune\n\nChapter 1\nA beginning is a very delicate time.\n\nChapter 2\nFear & the mind-killer.\n\n", text.Content);
+    }
+
+    [Fact]
     public async Task Pages_long_text_and_sniffs_unknown_extensions()
     {
         await using var db = await TestDb.CreateAsync();
