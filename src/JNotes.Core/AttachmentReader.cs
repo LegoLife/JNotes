@@ -45,7 +45,10 @@ public sealed partial class AttachmentReader(AttachmentStore store)
     }
 
     /// <summary>Reads an attachment by its URL as it appears in a note (absolute http URLs to this app also work).</summary>
-    public async Task<AttachmentContent> ReadAsync(string url, int offset = 0, CancellationToken ct = default)
+    public Task<AttachmentContent> ReadAsync(string url, int offset = 0, CancellationToken ct = default) => ReadAsync(url, offset, MaxChars, ct);
+
+    /// <summary>As above, returning at most <paramref name="maxChars"/> characters of text.</summary>
+    public async Task<AttachmentContent> ReadAsync(string url, int offset, int maxChars, CancellationToken ct = default)
     {
         var (id, name) = Split(url) ?? throw new DomainException($"“{url}” isn't a JNotes attachment link (expected /attachments/…).");
         var path = (id is null ? store.GetPath(name) : store.GetFilePath(id, name))
@@ -89,7 +92,7 @@ public sealed partial class AttachmentReader(AttachmentStore store)
             return new AttachmentContent.Unreadable(name, clean, size, "No text found (e.g. a scanned PDF, which holds only images).");
 
         offset = Math.Clamp(offset, 0, text.Length);
-        var slice = text.Substring(offset, Math.Min(MaxChars, text.Length - offset));
+        var slice = text.Substring(offset, Math.Min(maxChars, text.Length - offset));
         return new AttachmentContent.Text(name, clean, size, slice, offset, text.Length);
     }
 
