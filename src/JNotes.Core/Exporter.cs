@@ -33,9 +33,7 @@ public sealed partial class Exporter(INoteStore notes, AttachmentStore attachmen
                     : m.Value);
             await WriteEntryAsync(zip, path, Encoding.UTF8.GetBytes(Document(note.Title, body)), ct);
         }
-        foreach (var name in usedImages)
-            if (attachments.GetPath(name) is { } file)
-                await WriteEntryAsync(zip, "attachments/" + name, await File.ReadAllBytesAsync(file, ct), ct, CompressionLevel.NoCompression);
+        await WriteAttachmentsAsync(zip, usedImages, ct);
     }
 
     /// <summary>One note as <c>Title.md</c>, or as <c>Title.zip</c> (note + images) if it contains images.</summary>
@@ -52,14 +50,27 @@ public sealed partial class Exporter(INoteStore notes, AttachmentStore attachmen
         using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true, Encoding.UTF8))
         {
             await WriteEntryAsync(zip, name + ".md", markdown, ct);
-            foreach (var image in images)
-                if (attachments.GetPath(image) is { } file)
-                    await WriteEntryAsync(zip, "attachments/" + image, await File.ReadAllBytesAsync(file, ct), ct, CompressionLevel.NoCompression);
+            await WriteAttachmentsAsync(zip, images, ct);
         }
         return new ExportFile(name + ".zip", "application/zip", buffer.ToArray());
     }
 
     // ---------- helpers ----------
+
+    // Names are either "{guid}.{ext}" (images) or "{guid}/{file name}" (other files).
+    private async Task WriteAttachmentsAsync(ZipArchive zip, IEnumerable<string> names, CancellationToken ct)
+    {
+        foreach (var name in names)
+        {
+            var slash = name.IndexOf('/');
+            var file = slash < 0 ? attachments.GetPath(name) : attachments.GetFilePath(name[..slash], name[(slash + 1)..]);
+            if (file is null) continue;
+            var entry = zip.CreateEntry("attachments/" + name, CompressionLevel.NoCompression);
+            await using var target = await entry.OpenAsync(ct);
+            await using var source = File.OpenRead(file);
+            await source.CopyToAsync(target, ct);
+        }
+    }
 
     private static string Document(string title, string body) => $"# {title}\n\n{body.TrimEnd()}\n";
 
@@ -91,12 +102,21 @@ public sealed partial class Exporter(INoteStore notes, AttachmentStore attachmen
         return cleaned.Length == 0 ? "Untitled" : cleaned;
     }
 
-    private static string RewriteImages(string markdown, string prefix, HashSet<string> used) =>
-        AttachmentLink().Replace(markdown, m =>
+    private static string RewriteImages(string markdown, string prefix, HashSet<string> used)
+    {
+        markdown = AttachmentLink().Replace(markdown, m =>
         {
             used.Add(m.Groups["name"].Value);
             return $"]({prefix}{m.Groups["name"].Value}";
         });
+        return FileLink().Replace(markdown, m =>
+        {
+            var name = Uri.UnescapeDataString(m.Groups["name"].Value);
+            if (name != AttachmentStore.SafeFileName(name)) return m.Value;
+            used.Add($"{m.Groups["id"].Value}/{name}");
+            return $"]({prefix}{m.Groups["id"].Value}/{m.Groups["name"].Value})";
+        });
+    }
 
     public static string RelativePath(string fromFile, string toFile)
     {
@@ -117,6 +137,7 @@ public sealed partial class Exporter(INoteStore notes, AttachmentStore attachmen
     }
 
     [GeneratedRegex(@"\]\(/attachments/(?<name>[0-9a-f]{32}\.(?:png|jpg|gif|webp))")] private static partial Regex AttachmentLink();
+    [GeneratedRegex(@"\]\(/attachments/(?<id>[0-9a-f]{32})/(?<name>[^/)\s]+)\)")] private static partial Regex FileLink();
     [GeneratedRegex(@"\]\(/notes/(?<id>[0-9a-fA-F-]{36})\)")] private static partial Regex InternalLink();
     [GeneratedRegex(@"[\\/:*?""<>|\x00-\x1F]")] private static partial Regex InvalidFileChars();
 }

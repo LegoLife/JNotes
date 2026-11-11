@@ -32,6 +32,27 @@ public class AttachmentStoreTests
     [InlineData("abc.png")]
     [InlineData("0123456789abcdef0123456789abcdef.svg")]
     public void Rejects_unsafe_names(string name) => Assert.False(AttachmentStore.IsValidName(name));
+
+    [Fact]
+    public async Task Saves_any_file_under_its_original_name()
+    {
+        await using var db = await TestDb.CreateAsync();
+        var name = await db.Attachments.SaveFileAsync(new MemoryStream("%PDF-1.7"u8.ToArray()), "Tax return 2025.pdf");
+
+        Assert.Matches(@"^[0-9a-f]{32}/Tax return 2025\.pdf$", name);
+        var id = name[..32];
+        Assert.Equal("%PDF-1.7", await File.ReadAllTextAsync(db.Attachments.GetFilePath(id, "Tax return 2025.pdf")!));
+        Assert.Null(db.Attachments.GetFilePath(id, "../" + id + "/Tax return 2025.pdf"));
+        Assert.Null(db.Attachments.GetFilePath("..", "jnotes.db"));
+    }
+
+    [Theory]
+    [InlineData(@"C:\fakepath\report.pdf", "report.pdf")]
+    [InlineData("a<b>|?#%.txt", "a_b_____.txt")]
+    [InlineData(".bashrc", "file.bashrc")]
+    [InlineData("", "file")]
+    [InlineData("trailing. ", "trailing")]
+    public void Sanitises_file_names(string input, string expected) => Assert.Equal(expected, AttachmentStore.SafeFileName(input));
 }
 
 public class DocmostImporterTests
@@ -83,7 +104,7 @@ public class DocmostImporterTests
     }
 
     [Fact]
-    public async Task Reports_missing_files_unsupported_attachments_and_html()
+    public async Task Reports_missing_files_and_html_and_imports_other_attachments()
     {
         await using var db = await TestDb.CreateAsync();
         using var zip = Zip(
@@ -92,10 +113,12 @@ public class DocmostImporterTests
 
         var report = await new DocmostImporter(db.Store, db.Attachments).ImportAsync(zip, null);
 
-        Assert.Equal(3, report.Warnings.Count);
+        Assert.Equal(2, report.Warnings.Count);
         Assert.Contains(report.Warnings, w => w.Contains("image not found"));
-        Assert.Contains(report.Warnings, w => w.Contains("spec.pdf"));
         Assert.Contains(report.Warnings, w => w.Contains("<div>"));
+        var content = (await db.Store.GetTreeAsync()).Single(e => e.Name == "Page") is var page
+            ? (await db.Store.GetNoteAsync(page.Id))!.Content : "";
+        Assert.Matches(@"\[spec\.pdf\]\(/attachments/[0-9a-f]{32}/spec\.pdf\)", content);
     }
 
     [Fact]

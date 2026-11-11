@@ -394,11 +394,23 @@ async function upload(file) {
   return (await res.json()).url;
 }
 
+async function uploadFile(file) {
+  const res = await fetch(`/attachments/files?name=${encodeURIComponent(file.name || 'file')}`, {
+    method: 'POST',
+    body: file,
+    headers: { 'Content-Type': 'application/octet-stream' },
+    credentials: 'same-origin',
+  });
+  if (res.status === 413) throw new Error(`“${file.name}” is too large.`);
+  if (!res.ok) throw new Error((await res.text()) || `Upload failed (${res.status})`);
+  return res.json();
+}
+
 /**
  * @param {HTMLElement} element      host element
  * @param {any} dotnetRef            DotNetObjectReference exposing OnContentChanged(string), OnError(string)
  * @param {string} markdown          initial content
- * @param {{debounceMs?: number, fileInput?: HTMLInputElement, canGenerate?: boolean}} options
+ * @param {{debounceMs?: number, fileInput?: HTMLInputElement, attachInput?: HTMLInputElement, canGenerate?: boolean}} options
  */
 export function create(element, dotnetRef, markdown, options) {
   const debounceMs = options?.debounceMs ?? 1000;
@@ -417,6 +429,23 @@ export function create(element, dotnetRef, markdown, options) {
         .then((url) => {
           const at = pos ?? editor.state.selection.anchor;
           editor.chain().insertContentAt(at, { type: 'image', attrs: { src: url, alt: file.name } }).focus().run();
+        })
+        .catch(reportError);
+    }
+  };
+
+  // Images become inline pictures; any other file becomes a "📎 name" link to the stored file.
+  const insertFiles = (editor, files, pos) => {
+    const images = files.filter((f) => IMAGE_TYPES.includes(f.type));
+    insertImages(editor, images, pos);
+    for (const file of files.filter((f) => !IMAGE_TYPES.includes(f.type))) {
+      uploadFile(file)
+        .then(({ url, name }) => {
+          const at = pos ?? editor.state.selection.anchor;
+          editor.chain().insertContentAt(at, [
+            { type: 'text', text: `📎 ${name}`, marks: [{ type: 'link', attrs: { href: url } }] },
+            { type: 'text', text: ' ' },
+          ]).focus().run();
         })
         .catch(reportError);
     }
@@ -464,11 +493,10 @@ export function create(element, dotnetRef, markdown, options) {
       TaskList,
       TaskItem.configure({ nested: true }),
       FileHandler.configure({
-        allowedMimeTypes: IMAGE_TYPES,
-        onDrop: (ed, files, pos) => insertImages(ed, files, pos),
+        onDrop: (ed, files, pos) => insertFiles(ed, files, pos),
         onPaste: (ed, files, html) => {
           if (html) return false; // copied from a web page: keep the page's own <img>
-          insertImages(ed, files);
+          insertFiles(ed, files);
         },
       }),
     ],
@@ -517,6 +545,13 @@ export function create(element, dotnetRef, markdown, options) {
     fileInput.value = '';
   };
   fileInput?.addEventListener('change', onFilePicked);
+  // Toolbar "attach file" button: same pattern, any file type.
+  const attachInput = options?.attachInput;
+  const onAttachPicked = () => {
+    insertFiles(editor, [...(attachInput.files ?? [])]);
+    attachInput.value = '';
+  };
+  attachInput?.addEventListener('change', onAttachPicked);
 
   // Save promptly when the tab is hidden/closed.
   const onVisibility = () => {
@@ -576,6 +611,7 @@ export function create(element, dotnetRef, markdown, options) {
     destroy: async () => {
       document.removeEventListener('visibilitychange', onVisibility);
       fileInput?.removeEventListener('change', onFilePicked);
+      attachInput?.removeEventListener('change', onAttachPicked);
       try { await flush(); } finally {
         destroyed = true;
         editor.destroy();

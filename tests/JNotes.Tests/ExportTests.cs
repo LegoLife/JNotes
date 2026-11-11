@@ -45,6 +45,33 @@ public class ExportTests
     }
 
     [Fact]
+    public async Task File_attachments_export_and_reimport()
+    {
+        await using var source = await TestDb.CreateAsync();
+        var stored = await source.Attachments.SaveFileAsync(new MemoryStream("hello"u8.ToArray()), "My notes.md");
+        var url = "/attachments/" + stored[..33] + Uri.EscapeDataString(stored[33..]);
+        await source.Store.CreateNoteAsync("Doc", null, $"[📎 My notes.md]({url})");
+
+        using var zip = new MemoryStream();
+        await new Exporter(source.Store, source.Attachments).WriteVaultAsync(zip);
+        var files = await ReadZip(zip);
+        Assert.Equal("hello", files[$"attachments/{stored}"]);
+        Assert.Contains($"(attachments/{stored[..33]}My%20notes.md)", files["Doc.md"]);
+
+        await using var target = await TestDb.CreateAsync();
+        zip.Position = 0;
+        using var archive = new ZipArchive(zip);
+        var report = await new DocmostImporter(target.Store, target.Attachments).ImportAsync(archive, null);
+        var tree = await target.Store.GetTreeAsync();
+        Assert.Equal(["Doc"], tree.Where(e => !e.IsFolder).Select(e => e.Name)); // the .md attachment isn't a page
+        var content = (await target.Store.GetNoteAsync(tree.Single(e => e.Name == "Doc").Id))!.Content;
+        var m = System.Text.RegularExpressions.Regex.Match(content, @"/attachments/([0-9a-f]{32})/My%20notes\.md\)");
+        Assert.True(m.Success, content);
+        Assert.Equal("hello", await File.ReadAllTextAsync(target.Attachments.GetFilePath(m.Groups[1].Value, "My notes.md")!));
+        Assert.Empty(report.Warnings);
+    }
+
+    [Fact]
     public async Task Exported_vault_reimports_with_the_same_structure()
     {
         await using var source = await TestDb.CreateAsync();
