@@ -45,6 +45,7 @@ builder.Services.AddMudServices();
 
 builder.Services.AddJNotesData($"Data Source={Path.Combine(dataDir, "jnotes.db")}");
 builder.Services.AddSingleton(new AttachmentStore(Path.Combine(dataDir, "attachments")));
+builder.Services.AddSingleton<AttachmentReader>();
 builder.Services.AddSingleton<DocmostImporter>();
 builder.Services.AddSingleton<Exporter>();
 builder.Services.AddSingleton(sp => new BackupService(

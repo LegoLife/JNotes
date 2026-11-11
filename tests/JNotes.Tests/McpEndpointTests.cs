@@ -63,8 +63,8 @@ public sealed class McpEndpointTests : IAsyncLifetime
         await using var client = await ConnectAsync();
         var names = (await client.ListToolsAsync()).Select(t => t.Name).Order().ToList();
 
-        Assert.Equal(["append_to_note", "create_note", "fulfill_request", "list_folders", "list_notes", "list_pending_requests",
-            "list_templates", "move_note", "read_note", "replace_section", "search_notes"], names);
+        Assert.Equal(["append_to_note", "create_note", "fulfill_request", "list_attachments", "list_folders", "list_notes", "list_pending_requests",
+            "list_templates", "move_note", "read_attachment", "read_note", "replace_section", "search_notes"], names);
     }
 
     [Fact]
@@ -93,6 +93,29 @@ public sealed class McpEndpointTests : IAsyncLifetime
 
         var search = Text(await client.CallToolAsync("search_notes", new Dictionary<string, object?> { ["query"] = "arrakis" }));
         Assert.Contains("Chapter 1", search);
+    }
+
+    [Fact]
+    public async Task Attachments_can_be_listed_and_read()
+    {
+        var store = _factory.Services.GetRequiredService<AttachmentStore>();
+        var image = await store.SaveAsync(new MemoryStream(AttachmentStoreTests.Png));
+        var file = await store.SaveFileAsync(new MemoryStream("Packing list: tent, stove"u8.ToArray()), "Trip list.txt");
+        var fileUrl = AttachmentStore.UrlPrefix + file[..33] + Uri.EscapeDataString(file[33..]);
+        await using var client = await ConnectAsync();
+        await client.CallToolAsync("create_note", new Dictionary<string, object?>
+        {
+            ["title"] = "Camping", ["markdown"] = $"![map](/attachments/{image})\n\n[📎 Trip list.txt]({fileUrl})",
+        });
+
+        var list = Text(await client.CallToolAsync("list_attachments", new Dictionary<string, object?> { ["note"] = "Camping" }));
+        Assert.Contains(fileUrl, list);
+        Assert.Contains("map", list);
+
+        var text = await client.CallToolAsync("read_attachment", new Dictionary<string, object?> { ["url"] = fileUrl });
+        Assert.Contains("Packing list: tent, stove", Text(text));
+        var picture = await client.CallToolAsync("read_attachment", new Dictionary<string, object?> { ["url"] = $"/attachments/{image}" });
+        Assert.Equal("image/png", picture.Content.OfType<ImageContentBlock>().Single().MimeType);
     }
 
     [Fact]
