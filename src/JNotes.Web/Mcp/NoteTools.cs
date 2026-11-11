@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using JNotes.Core;
 using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace JNotes.Web.Mcp;
@@ -10,7 +11,7 @@ namespace JNotes.Web.Mcp;
 /// Claude can read, create, append, fill AI requests, replace a section and move notes.
 /// </summary>
 [McpServerToolType]
-public sealed class NoteTools(NoteOperations ops, INoteStore store, INoteSearch search, ITemplateStore templates)
+public sealed class NoteTools(NoteOperations ops, INoteStore store, INoteSearch search, ITemplateStore templates, AttachmentReader attachments)
 {
     private const string NoteParam = "The note's id (preferred, from search/list results) or its exact title, optionally with folder path like \"Books/Dune/Chapter 3\".";
 
@@ -71,6 +72,37 @@ public sealed class NoteTools(NoteOperations ops, INoteStore store, INoteSearch 
         var index = await ops.TreeAsync(ct);
         return new NoteContent(n.Id, n.Title, NoteOperations.PathOf(index, n.FolderId), n.UpdatedAt,
             AiBlocks.Headings(n.Content).Select(h => $"{new string('#', h.Level)} {h.Text}").ToList(), n.Content);
+    });
+
+    [McpServerTool(Name = "list_attachments", ReadOnly = true, Destructive = false)]
+    [Description("Lists the files and images attached to a note (name and url). Pass a url to read_attachment to see its contents.")]
+    public Task<IReadOnlyList<AttachmentReader.Link>> ListAttachments([Description(NoteParam)] string note, CancellationToken ct = default) => Run(async () =>
+        AttachmentReader.FindLinks((await ops.ResolveNoteAsync(note, ct)).Content));
+
+    [McpServerTool(Name = "read_attachment", ReadOnly = true, Destructive = false)]
+    [Description("Reads a file or image attached to a note, by the /attachments/… url from the note's markdown or list_attachments. "
+        + "Images are returned as images. PDFs, Word (.docx) and text-like files (txt, md, csv, json, code…) are returned as text, "
+        + "up to 50,000 characters per call; if more remains, call again with the offset given. Other types (zip, audio, video…) can't be read.")]
+    public Task<CallToolResult> ReadAttachment(
+        [Description("The attachment url, e.g. /attachments/0123…/Report.pdf")] string url,
+        [Description("Character offset to continue reading long text from (default 0).")] int? offset = null,
+        CancellationToken ct = default) => Run(async () =>
+    {
+        var content = await attachments.ReadAsync(url, offset ?? 0, ct);
+        var header = $"{content.Name} ({content.Size:N0} bytes)";
+        IList<ContentBlock> blocks = content switch
+        {
+            AttachmentContent.Image i => [new TextContentBlock { Text = header }, ImageContentBlock.FromBytes(i.Data, i.MimeType)],
+            AttachmentContent.Text t => [new TextContentBlock
+            {
+                Text = $"{header}, characters {t.Offset:N0}–{t.Offset + t.Content.Length:N0} of {t.Total:N0}"
+                    + (t.Offset + t.Content.Length < t.Total ? $" — more remains: call again with offset={t.Offset + t.Content.Length}" : "")
+                    + "\n\n" + t.Content,
+            }],
+            AttachmentContent.Unreadable u => [new TextContentBlock { Text = $"{header}: {u.Reason}" }],
+            _ => throw new InvalidOperationException(),
+        };
+        return new CallToolResult { Content = blocks };
     });
 
     [McpServerTool(Name = "list_templates", ReadOnly = true, Destructive = false)]
