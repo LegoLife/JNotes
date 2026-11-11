@@ -18,6 +18,29 @@ public class AiRequestProcessorTests
     private const string Note = "## Highlights\n\n- spice\n\n## Summary\n\n:::ai-request{id=\"r1\"}\nSummarise it\n:::\n";
 
     [Fact]
+    public async Task Sends_attachment_text_within_a_budget()
+    {
+        await using var db = await TestDb.CreateAsync();
+        var big = new string('x', AiRequestProcessor.AttachmentBudget + 10);
+        var book = await db.Attachments.SaveFileAsync(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(big)), "Book.txt");
+        var extra = await db.Attachments.SaveFileAsync(new MemoryStream("later"u8.ToArray()), "Later.txt");
+        var image = await db.Attachments.SaveAsync(new MemoryStream(AttachmentStoreTests.Png));
+        string Url(string s) => AttachmentStore.UrlPrefix + s[..33] + Uri.EscapeDataString(s[33..]);
+        var note = await db.Store.CreateNoteAsync("Reading", null,
+            $"![pic](/attachments/{image})\n\n[📎 Book.txt]({Url(book)})\n\n[📎 Later.txt]({Url(extra)})\n\n:::ai-request{{id=\"r1\"}}\nSummarise\n:::\n");
+        var generator = new FakeGenerator(_ => "ok");
+
+        await new AiRequestProcessor(db.Store, db.Ops, generator, db.Events, new AttachmentReader(db.Attachments)).RunAsync(note.Id, "r1");
+
+        var sent = Assert.Single(generator.Last!.Attachments); // image skipped; budget used up before Later.txt
+        Assert.Equal(("Book.txt", true, big.Length), (sent.Name, sent.Truncated, sent.TotalChars));
+        Assert.Equal(AiRequestProcessor.AttachmentBudget, sent.Text.Length);
+        var prompt = AiPrompt.User(generator.Last);
+        Assert.Contains("<attachment name=\"Book.txt\">", prompt);
+        Assert.Contains("truncated", prompt);
+    }
+
+    [Fact]
     public async Task Generates_and_fills_the_request_with_a_live_edit()
     {
         await using var db = await TestDb.CreateAsync();
