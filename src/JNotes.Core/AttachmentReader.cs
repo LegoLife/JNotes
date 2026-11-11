@@ -74,6 +74,7 @@ public sealed partial class AttachmentReader(AttachmentStore store)
             {
                 ".pdf" => ExtractPdf(path),
                 ".docx" => ExtractDocx(path),
+                ".epub" => ExtractEpub(path),
                 _ when TextExtensions.Contains(ext) || LooksLikeText(path) => await File.ReadAllTextAsync(path, ct),
                 _ => null,
             };
@@ -132,6 +133,70 @@ public sealed partial class AttachmentReader(AttachmentStore store)
         }
         return sb.ToString();
     }
+
+    /// <summary>EPUB: container.xml → OPF package → spine order → each XHTML chapter as plain text.</summary>
+    private static string? ExtractEpub(string path)
+    {
+        using var zip = ZipFile.OpenRead(path);
+        string Read(string name)
+        {
+            var e = zip.GetEntry(name) ?? throw new InvalidDataException($"EPUB is missing {name}.");
+            using var r = new StreamReader(e.Open());
+            return r.ReadToEnd();
+        }
+        var container = System.Xml.Linq.XDocument.Parse(Read("META-INF/container.xml"));
+        var opfPath = container.Descendants().First(e => e.Name.LocalName == "rootfile").Attribute("full-path")!.Value;
+        var opfDir = opfPath.Contains('/') ? opfPath[..(opfPath.LastIndexOf('/') + 1)] : "";
+        var opf = System.Xml.Linq.XDocument.Parse(Read(opfPath));
+
+        var manifest = opf.Descendants().Where(e => e.Name.LocalName == "item")
+            .Where(e => e.Attribute("id") is not null && e.Attribute("href") is not null)
+            .ToDictionary(e => e.Attribute("id")!.Value, e => e.Attribute("href")!.Value);
+        var spine = opf.Descendants().Where(e => e.Name.LocalName == "itemref")
+            .Select(e => e.Attribute("idref")?.Value).OfType<string>()
+            .Where(manifest.ContainsKey).Select(id => manifest[id]);
+
+        var title = opf.Descendants().FirstOrDefault(e => e.Name.LocalName == "title")?.Value;
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(title)) sb.Append("# ").Append(title.Trim()).Append("\n\n");
+        foreach (var href in spine)
+        {
+            var entryPath = NormalizeZipPath(opfDir + Uri.UnescapeDataString(href.Split('#')[0]));
+            if (zip.GetEntry(entryPath) is null) continue;
+            var text = HtmlToText(Read(entryPath));
+            if (text.Length > 0) sb.Append(text).Append("\n\n");
+        }
+        return sb.ToString();
+    }
+
+    private static string NormalizeZipPath(string path)
+    {
+        var parts = new List<string>();
+        foreach (var seg in path.Split('/'))
+        {
+            if (seg is "" or ".") continue;
+            if (seg == "..") { if (parts.Count > 0) parts.RemoveAt(parts.Count - 1); }
+            else parts.Add(seg);
+        }
+        return string.Join('/', parts);
+    }
+
+    private static string HtmlToText(string html)
+    {
+        html = HtmlDropped().Replace(html, "");
+        html = HtmlBlockEnd().Replace(html, "\n");
+        html = HtmlTag().Replace(html, "");
+        html = System.Net.WebUtility.HtmlDecode(html);
+        html = HorizontalSpace().Replace(html, " ");
+        html = BlankLines().Replace(html, "\n\n");
+        return string.Join('\n', html.Split('\n').Select(l => l.Trim())).Trim();
+    }
+
+    [GeneratedRegex(@"<(head|script|style)\b[\s\S]*?</\1>", RegexOptions.IgnoreCase)] private static partial Regex HtmlDropped();
+    [GeneratedRegex(@"<br\s*/?>|</(p|div|h[1-6]|li|tr|blockquote|section|pre)>", RegexOptions.IgnoreCase)] private static partial Regex HtmlBlockEnd();
+    [GeneratedRegex(@"<[^>]+>")] private static partial Regex HtmlTag();
+    [GeneratedRegex(@"[ \t\r\f\v ]+")] private static partial Regex HorizontalSpace();
+    [GeneratedRegex(@"\n\s*\n\s*\n+")] private static partial Regex BlankLines();
 
     // Unknown extension: text if the first 8 KB is valid UTF-8 with no NULs.
     private static bool LooksLikeText(string path)
