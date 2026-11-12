@@ -37,12 +37,13 @@ jobs:
           npm ci
           npm run build
 
-      - name: Test
-        run: dotnet test
-
-      # SQLite is compiled into the WebAssembly runtime, which needs the wasm build tools.
+      # SQLite is compiled into the WebAssembly runtime, which needs the wasm build tools
+      # (the solution includes the demo, so tests need them too).
       - name: Install wasm-tools
         run: dotnet workload install wasm-tools
+
+      - name: Test
+        run: dotnet test
 
       - name: Publish demo
         run: dotnet publish src/JNotes.Demo -c Release -o publish
