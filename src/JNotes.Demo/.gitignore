@@ -1,0 +1,6 @@
+wwwroot/*.css
+wwwroot/*.js
+wwwroot/*.ico
+wwwroot/js/
+bin/
+obj/
