@@ -26,27 +26,37 @@
         <MudTooltip Text="Search all notes">
             <MudIconButton Href="search" Icon="@Icons.Material.Outlined.ManageSearch" Color="Color.Inherit" aria-label="Search all notes" />
         </MudTooltip>
-        <MudTooltip Text="Claude">
-            <MudIconButton Href="claude" Icon="@Icons.Material.Outlined.AutoAwesome" Color="Color.Inherit" aria-label="Claude" />
-        </MudTooltip>
+        @* The browser-only demo has no server for MCP, Docmost imports, backups or export. *@
+        @if (!OperatingSystem.IsBrowser())
+        {
+            <MudTooltip Text="Claude">
+                <MudIconButton Href="claude" Icon="@Icons.Material.Outlined.AutoAwesome" Color="Color.Inherit" aria-label="Claude" />
+            </MudTooltip>
+        }
         <MudTooltip Text="Templates">
             <MudIconButton Href="templates" Icon="@Icons.Material.Outlined.DashboardCustomize" Color="Color.Inherit" aria-label="Templates" />
         </MudTooltip>
-        <MudTooltip Text="Import from Docmost">
-            <MudIconButton Href="import" Icon="@Icons.Material.Outlined.FileUpload" Color="Color.Inherit" aria-label="Import from Docmost" />
-        </MudTooltip>
-        <MudTooltip Text="@(_backupStale ? "Settings · backups need attention" : "Settings")">
-            <MudBadge Dot="true" Color="Color.Warning" Visible="_backupStale" Overlap="true">
-                <MudIconButton Href="settings" Icon="@Icons.Material.Outlined.Settings" Color="Color.Inherit" aria-label="Settings" />
-            </MudBadge>
-        </MudTooltip>
+        @if (!OperatingSystem.IsBrowser())
+        {
+            <MudTooltip Text="Import from Docmost">
+                <MudIconButton Href="import" Icon="@Icons.Material.Outlined.FileUpload" Color="Color.Inherit" aria-label="Import from Docmost" />
+            </MudTooltip>
+            <MudTooltip Text="@(_backupStale ? "Settings · backups need attention" : "Settings")">
+                <MudBadge Dot="true" Color="Color.Warning" Visible="_backupStale" Overlap="true">
+                    <MudIconButton Href="settings" Icon="@Icons.Material.Outlined.Settings" Color="Color.Inherit" aria-label="Settings" />
+                </MudBadge>
+            </MudTooltip>
+        }
         <MudIconButton Icon="@(_dark ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                        Color="Color.Inherit" OnClick="() => _dark = !_dark" aria-label="Toggle dark mode" />
-        <form method="post" action="logout" data-enhance="false">
-            <AntiforgeryToken />
-            <MudIconButton ButtonType="ButtonType.Submit" Icon="@Icons.Material.Filled.Logout"
-                           Color="Color.Inherit" aria-label="Sign out" />
-        </form>
+        @if (!OperatingSystem.IsBrowser())
+        {
+            <form method="post" action="logout" data-enhance="false">
+                <AntiforgeryToken />
+                <MudIconButton ButtonType="ButtonType.Submit" Icon="@Icons.Material.Filled.Logout"
+                               Color="Color.Inherit" aria-label="Sign out" />
+            </form>
+        }
     </MudAppBar>
 
     <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="0"
@@ -55,6 +65,13 @@
     </MudDrawer>
 
     <MudMainContent>
+        @if (OperatingSystem.IsBrowser())
+        {
+            <div class="demo-banner">
+                Demo: runs entirely in your browser with sample notes and resets when you reload.
+                Inline /ai gives a canned reply here; the real app sends it to Claude.
+            </div>
+        }
         <div class="page">
             @Body
         </div>
@@ -69,8 +86,10 @@
     private bool _backupStale;
 
     // Don't nag in the first hour after startup: the nightly job does a catch-up backup a minute after launch.
+    // The browser-only demo has no backups (and can't read a process start time), so it never nags.
     protected override void OnInitialized() =>
-        _backupStale = Backups.GetStatus().IsStale(DateTimeOffset.UtcNow)
+        _backupStale = !OperatingSystem.IsBrowser()
+                       && Backups.GetStatus().IsStale(DateTimeOffset.UtcNow)
                        && DateTime.Now - System.Diagnostics.Process.GetCurrentProcess().StartTime > TimeSpan.FromHours(1);
     private IJSObjectReference? _hotkeysModule;
     private IJSObjectReference? _hotkeys;

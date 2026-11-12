@@ -306,3 +306,7 @@ kbd {
 .note-link-picker .nlp-path:empty { display: none; }
 .note-link-picker .nlp-empty { padding: 6px 10px; color: var(--mud-palette-text-secondary); font-size: .85rem; }
 .editor-host .ProseMirror a[href^="/notes/"] { cursor: pointer; }
+
+/* Browser-only demo (JNotes.Demo on GitHub Pages) */
+.demo-banner { padding: 6px 16px; text-align: center; font-size: .8rem;
+    background: #fff3cd; color: #5c4400; border-bottom: 1px solid #f0d78c; }

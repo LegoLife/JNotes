@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JNotes demo</title>
+    <base href="/" />
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="JNotes.Demo.styles.css" />
+    <style>
+        .demo-loading { font-family: system-ui, sans-serif; display: grid; place-items: center; height: 100vh; color: #666; }
+    </style>
+    <script>
+        // The editor uploads pasted/dropped files to the server's /attachments endpoint. There is no server here,
+        // so answer those requests in the page: the file becomes a data: URL that lives as long as the tab.
+        (() => {
+            const realFetch = window.fetch.bind(window);
+            const toDataUrl = (blob, type) => new Promise((ok, fail) => {
+                const r = new FileReader();
+                r.onload = () => ok(r.result);
+                r.onerror = () => fail(r.error);
+                r.readAsDataURL(type ? new Blob([blob], { type }) : blob);
+            });
+            const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'Content-Type': 'application/json' } });
+            window.fetch = async (input, init) => {
+                const url = typeof input === 'string' ? input : input.url;
+                if (init?.method === 'POST' && /^\/attachments(\/files)?(\?|$)/.test(url)) {
+                    const body = init.body;
+                    if (body.size > 5 * 1024 * 1024) return new Response('Files over 5 MB are not supported in the demo.', { status: 413 });
+                    const name = new URL(url, location.origin).searchParams.get('name');
+                    const dataUrl = await toDataUrl(body, name ? null : init.headers?.['Content-Type']);
+                    return json(name ? { url: dataUrl, name } : { url: dataUrl });
+                }
+                return realFetch(input, init);
+            };
+        })();
+    </script>
+</head>
+<body>
+    <div id="app"><div class="demo-loading">Loading the JNotes demo…</div></div>
+    <div id="blazor-error-ui" style="display:none">Something went wrong. <a href="" class="reload">Reload</a></div>
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,77 @@
+# Tests the app, then publishes the browser-only demo (src/JNotes.Demo) to GitHub Pages on every push to master.
+# One-time setup: repository Settings > Pages > Source = "GitHub Actions".
+name: Deploy demo to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The Tiptap editor bundle (wwwroot/js/editor.js) is built, not committed.
+      - name: Build editor
+        working-directory: src/JNotes.Web/Editor
+        run: |
+          npm ci
+          npm run build
+
+      - name: Test
+        run: dotnet test
+
+      # SQLite is compiled into the WebAssembly runtime, which needs the wasm build tools.
+      - name: Install wasm-tools
+        run: dotnet workload install wasm-tools
+
+      - name: Publish demo
+        run: dotnet publish src/JNotes.Demo -c Release -o publish
+
+      - name: Prepare for Pages
+        working-directory: publish/wwwroot
+        run: |
+          test -f js/editor.js || { echo "editor bundle missing"; exit 1; }
+          # The site is served from /<repo>/, not the domain root.
+          base="/${{ github.event.repository.name }}/"
+          sed -i "s|<base href=\"/\" />|<base href=\"$base\" />|" index.html
+          grep -q "<base href=\"$base\" />" index.html || { echo "base href was not rewritten"; exit 1; }
+          # Deep links like /notes/<id> or /search load the app instead of GitHub's 404 page.
+          cp index.html 404.html
+          # Without this, Jekyll drops _framework (folders starting with _ are skipped).
+          touch .nojekyll
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish/wwwroot
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

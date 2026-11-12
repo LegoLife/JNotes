@@ -1,7 +1,15 @@
-# JNotes
+﻿# JNotes
 
 Self-hosted, single-user notes app (Blazor Server + Tiptap + SQLite) that Claude Desktop can
 work with over MCP. See [docs/SPEC.md](docs/SPEC.md) for the full design.
+
+## Live demo
+
+**[legolife.github.io/JNotes](https://legolife.github.io/JNotes/)**: the real UI, editor and data layer running entirely in your browser
+(Blazor WebAssembly, with SQLite and its FTS5 search compiled to WebAssembly) on sample notes that reset when you reload.
+Pasted images and files stay in the tab. Inline `/ai` returns a canned reply instead of calling Claude, and the server-only pages
+(Claude/MCP setup, Docmost import, Settings with backups and export) aren't included. The demo project is `src/JNotes.Demo`;
+building it needs `dotnet workload install wasm-tools` and the editor bundle (`npm ci && npm run build` in `src/JNotes.Web/Editor`).
 
 ## Using it
 

@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <!-- Browser-only demo for GitHub Pages: the real JNotes UI, editor and data layer, with SQLite (incl. FTS5 search)
+       compiled to WebAssembly and sample notes. Needs the wasm-tools workload (dotnet workload install wasm-tools). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>JNotes.Web</RootNamespace>
+    <WasmBuildNative>true</WasmBuildNative>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../JNotes.Core/JNotes.Core.csproj" />
+    <ProjectReference Include="../JNotes.Data/JNotes.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.11" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="10.0.11" />
+    <PackageReference Include="MudBlazor" Version="9.12.0" />
+    <PackageReference Include="Markdig" Version="1.5.1" />
+    <!-- EF Core builds its model by reflection, and migrations are found by reflection; keep these whole. -->
+    <TrimmerRootAssembly Include="Microsoft.EntityFrameworkCore" />
+    <TrimmerRootAssembly Include="Microsoft.EntityFrameworkCore.Relational" />
+    <TrimmerRootAssembly Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <TrimmerRootAssembly Include="JNotes.Data" />
+    <TrimmerRootAssembly Include="JNotes.Core" />
+  </ItemGroup>
+
+  <!-- The web app's components, linked (not copied). Pages that only make sense with the server are left out:
+       login, MCP setup (Claude), Docmost import and Settings (backups, Drive, export).
+       Forward slashes only: a backslash in Link becomes part of the file name on Linux (CI). -->
+  <PropertyGroup>
+    <Web>../JNotes.Web/</Web>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="$(Web)Components/**/*.razor;$(Web)Components/**/*.razor.css"
+             Exclude="$(Web)Components/App.razor;$(Web)Components/Pages/Login.razor;$(Web)Components/Pages/Error.razor;$(Web)Components/Pages/ClaudePage.razor;$(Web)Components/Pages/ImportPage.razor;$(Web)Components/Pages/SettingsPage.razor;$(Web)Components/Layout/ReconnectModal.razor*"
+             Link="Components/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- Static web assets don't follow linked files, so copy the shared ones in (they're git-ignored here). -->
+  <Target Name="CopySharedAssets" BeforeTargets="BeforeBuild;ResolveProjectStaticWebAssets">
+    <ItemGroup>
+      <SharedAsset Include="$(Web)wwwroot/*.css;$(Web)wwwroot/*.js;$(Web)wwwroot/*.ico" />
+      <SharedJs Include="$(Web)wwwroot/js/editor.js" />
+    </ItemGroup>
+    <Copy SourceFiles="@(SharedAsset)" DestinationFolder="wwwroot" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(SharedJs)" DestinationFolder="wwwroot/js" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
