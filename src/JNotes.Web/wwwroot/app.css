@@ -310,3 +310,15 @@ kbd {
 /* Browser-only demo (JNotes.Demo on GitHub Pages) */
 .demo-banner { padding: 6px 16px; text-align: center; font-size: .8rem;
     background: #fff3cd; color: #5c4400; border-bottom: 1px solid #f0d78c; }
+
+/* Collapsible sections (Tiptap Details) */
+.editor-host .ProseMirror .details { display: flex; gap: .25rem; margin: .5em 0; padding: .25em .5em; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; }
+.editor-host .ProseMirror .details > button { flex: none; width: 1.5em; height: 1.5em; margin-top: .15em; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.editor-host .ProseMirror .details > button:hover { background: var(--mud-palette-action-default-hover); }
+.editor-host .ProseMirror .details > button::before { content: "B8"; transition: transform .15s; }
+.editor-host .ProseMirror .details.is-open > button::before { transform: rotate(90deg); }
+.editor-host .ProseMirror .details > div { flex: 1; min-width: 0; }
+.editor-host .ProseMirror .details summary { font-weight: 600; list-style: none; display: block; }
+.editor-host .ProseMirror .details summary::-webkit-details-marker { display: none; }
+.editor-host .ProseMirror .details [data-type="detailsContent"] { margin-top: .25em; }
+.editor-host .ProseMirror .details [data-type="detailsContent"][hidden] { display: none; }
