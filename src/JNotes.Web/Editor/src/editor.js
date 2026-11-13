@@ -10,6 +10,67 @@ import Youtube from '@tiptap/extension-youtube';
 import { TableKit } from '@tiptap/extension-table';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import FileHandler from '@tiptap/extension-file-handler';
+import { Details, DetailsSummary, DetailsContent } from '@tiptap/extension-details';
+
+// ---------- collapsible sections ----------
+// Markdown:  :::details{open} Section **title**\nbody blocks…\n:::   ("{open}" only when expanded).
+// Nesting works: the closing ":::" is found by counting ":::name" openers (outside code fences).
+const DETAILS_START = /(^|\n):::details(?:\{open\})?(?:[ \t]|\n|$)/;
+const DETAILS_HEAD = /^:::details(\{open\})?[ \t]*(.*)$/;
+
+function scanDetails(src) {
+  const lines = src.split('\n');
+  const head = DETAILS_HEAD.exec(lines[0]);
+  if (!head) return undefined;
+  let depth = 1; let fence = null;
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    const f = /^\s*(```+|~~~+)/.exec(line);
+    if (fence) { if (f && f[1][0] === fence[0] && f[1].length >= fence.length) fence = null; continue; }
+    if (f) { fence = f[1]; continue; }
+    if (/^:::[\w-]/.test(line)) depth++;
+    else if (/^:::[ \t]*$/.test(line) && --depth === 0) {
+      const raw = lines.slice(0, i + 1).join('\n') + (i + 1 < lines.length ? '\n' : '');
+      return { open: !!head[1], summary: head[2].trim(), body: lines.slice(1, i).join('\n'), raw };
+    }
+  }
+  return undefined;
+}
+
+const detailsExtensions = () => [
+  Details.extend({
+    markdownTokenName: 'jdetails',
+    markdownTokenizer: {
+      name: 'jdetails',
+      level: 'block',
+      start: (src) => { const m = DETAILS_START.exec(src); return m ? m.index + m[1].length : -1; },
+      tokenize: (src, _tokens, lexer) => {
+        const d = scanDetails(src);
+        if (!d) return undefined;
+        return { type: 'jdetails', raw: d.raw, open: d.open, summaryTokens: lexer.inlineTokens(d.summary), tokens: lexer.blockTokens(d.body) };
+      },
+    },
+    parseMarkdown: (token, h) => {
+      const body = h.parseChildren(token.tokens);
+      return {
+        type: 'details',
+        attrs: { open: token.open },
+        content: [
+          { type: 'detailsSummary', content: h.parseInline(token.summaryTokens) },
+          { type: 'detailsContent', content: body.length ? body : [{ type: 'paragraph' }] },
+        ],
+      };
+    },
+    renderMarkdown: (node, h) => {
+      const summary = node.content?.find((c) => c.type === 'detailsSummary');
+      const content = node.content?.find((c) => c.type === 'detailsContent');
+      const title = h.renderChildren(summary?.content ?? []).replace(/\n+/g, ' ').trim();
+      return `:::details${node.attrs?.open ? '{open}' : ''} ${title}\n${h.renderChildren(content?.content ?? [], '\n\n')}\n:::`;
+    },
+  }).configure({ persist: true, HTMLAttributes: { class: 'details' } }),
+  DetailsSummary,
+  DetailsContent,
+];
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
@@ -467,8 +528,10 @@ export function create(element, dotnetRef, markdown, options) {
       StarterKit.configure({ link: { openOnClick: false, autolink: true } }),
       Markdown,
       Placeholder.configure({
+        includeChildren: true,
         placeholder: ({ node }) => node.type.name === 'aiRequest'
           ? 'What should Claude write here? e.g. “Summarise this chapter from my notes above”'
+          : node.type.name === 'detailsSummary' ? 'Section title'
           : 'Start writing… type /ai to ask Claude, or paste a YouTube link or image',
       }),
       AiRequest.configure({
@@ -492,6 +555,7 @@ export function create(element, dotnetRef, markdown, options) {
       TableKit.configure({ table: { resizable: false } }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      ...detailsExtensions(),
       FileHandler.configure({
         onDrop: (ed, files, pos) => insertFiles(ed, files, pos),
         onPaste: (ed, files, html) => {
@@ -572,6 +636,7 @@ export function create(element, dotnetRef, markdown, options) {
     taskList: () => editor.chain().focus().toggleTaskList().run(),
     blockquote: () => editor.chain().focus().toggleBlockquote().run(),
     codeBlock: () => editor.chain().focus().toggleCodeBlock().run(),
+    details: () => (editor.isActive('details') ? editor.chain().focus().unsetDetails().run() : editor.chain().focus().setDetails().run()),
     hr: () => editor.chain().focus().setHorizontalRule().run(),
     table: () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
     undo: () => editor.chain().focus().undo().run(),
@@ -625,7 +690,7 @@ export function roundTrip(markdown) {
   const el = document.createElement('div');
   const ed = new Editor({
     element: el,
-    extensions: [StarterKit, Markdown, Image, YouTubeEmbed, TableKit, TaskList, TaskItem.configure({ nested: true }), AiRequest, AiResult],
+    extensions: [StarterKit, Markdown, Image, YouTubeEmbed, TableKit, TaskList, TaskItem.configure({ nested: true }), ...detailsExtensions(), AiRequest, AiResult],
     content: markdown,
     contentType: 'markdown',
   });
