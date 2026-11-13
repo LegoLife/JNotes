@@ -315,8 +315,8 @@ kbd {
 .editor-host .ProseMirror .details { display: flex; gap: .25rem; margin: .5em 0; padding: .25em .5em; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; }
 .editor-host .ProseMirror .details > button { flex: none; width: 1.5em; height: 1.5em; margin-top: .15em; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .editor-host .ProseMirror .details > button:hover { background: var(--mud-palette-action-default-hover); }
-.editor-host .ProseMirror .details > button::before { content: "B8"; transition: transform .15s; }
-.editor-host .ProseMirror .details.is-open > button::before { transform: rotate(90deg); }
+.editor-host .ProseMirror .details > button::before { content: ""; width: .45em; height: .45em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateX(-.1em) rotate(-45deg); transition: transform .15s; opacity: .7; }
+.editor-host .ProseMirror .details.is-open > button::before { transform: translateY(-.1em) rotate(45deg); }
 .editor-host .ProseMirror .details > div { flex: 1; min-width: 0; }
 .editor-host .ProseMirror .details summary { font-weight: 600; list-style: none; display: block; }
 .editor-host .ProseMirror .details summary::-webkit-details-marker { display: none; }
