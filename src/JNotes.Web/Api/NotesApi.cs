@@ -12,7 +12,7 @@ namespace JNotes.Web.Api;
 public static class NotesApi
 {
     public sealed record CreateReq(string Title, string? Folder, string? Markdown);
-    public sealed record AppendReq(string Markdown);
+    public sealed record AppendReq(string Markdown, string? Source = null);
     public sealed record NoteDto(Guid Id, string Title, string Folder, DateTimeOffset Updated, string Markdown);
 
     public static void MapNotesApi(this WebApplication app)
@@ -48,7 +48,8 @@ public static class NotesApi
         api.MapPost("{id:guid}/append", async (Guid id, AppendReq req, NoteOperations ops, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(req.Markdown)) return Results.Text("Nothing to append.", statusCode: 400);
-            var n = await ops.AppendAsync(id.ToString(), req.Markdown, ct);
+            var source = string.IsNullOrWhiteSpace(req.Source) ? "another app" : req.Source.Trim();
+            var n = await ops.AppendAsync(id.ToString(), req.Markdown, source, ct);
             return Results.Ok(new { n.Id, n.Title, n.UpdatedAt });
         });
     }

@@ -2,7 +2,8 @@ namespace JNotes.Core;
 
 /// <summary>An edit made by Claude (via MCP) that an open editor should apply live.</summary>
 public abstract record NoteEdit(Guid NoteId, string NewContent);
-public sealed record AppendEdit(Guid NoteId, string NewContent, string Markdown) : NoteEdit(NoteId, NewContent);
+/// <summary>Source = who added it ("Claude", or another app such as "ReadAlong"); shown in History and the editor notice.</summary>
+public sealed record AppendEdit(Guid NoteId, string NewContent, string Markdown, string Source = "Claude") : NoteEdit(NoteId, NewContent);
 public sealed record SectionEdit(Guid NoteId, string NewContent, string Heading, string Markdown) : NoteEdit(NoteId, NewContent);
 public sealed record RequestFulfilledEdit(Guid NoteId, string NewContent, string RequestId, string ResultBlock) : NoteEdit(NoteId, NewContent);
 
@@ -108,10 +109,13 @@ public sealed class NoteOperations(INoteStore notes, ITemplateStore templates, N
     }
 
     public Task<Note> AppendAsync(string noteReference, string markdown, CancellationToken ct = default) =>
-        EditAsync(noteReference, "Before Claude: added to the end", n =>
+        AppendAsync(noteReference, markdown, "Claude", ct);
+
+    public Task<Note> AppendAsync(string noteReference, string markdown, string source, CancellationToken ct = default) =>
+        EditAsync(noteReference, $"Before {source}: added to the end", n =>
         {
             var updated = AiBlocks.Append(n.Content, markdown);
-            return (updated, new AppendEdit(n.Id, updated, AiBlocks.SanitizeBody(markdown)));
+            return (updated, new AppendEdit(n.Id, updated, AiBlocks.SanitizeBody(markdown), source));
         }, ct);
 
     public Task<Note> ReplaceSectionAsync(string noteReference, string heading, string markdown, CancellationToken ct = default) =>
