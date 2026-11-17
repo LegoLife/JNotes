@@ -182,6 +182,7 @@ exportApi.MapGet("notes/{id:guid}", async (Guid id, Exporter exporter, Cancellat
     catch (DomainException) { return Results.NotFound(); }
 });
 
+JNotes.Web.Api.NotesApi.MapNotesApi(app); // REST for ReadAlong etc. (own key, not MCP)
 app.MapMcp("/mcp");
 if (!app.Services.GetRequiredService<IMcpAuthenticator>().IsConfigured)
     app.Logger.LogWarning("JNotes__McpToken is not set; the Claude (MCP) endpoint is disabled.");

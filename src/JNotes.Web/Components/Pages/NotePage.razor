@@ -104,7 +104,12 @@ else
                 _note.Title = _title = replaced.Title; // restored from History (the dialog shows its own message)
                 return;
             }
-            Snackbar.Add(edit is RequestFulfilledEdit ? "✨ Claude answered a request in this note" : "✨ Claude updated this note", Severity.Info);
+            Snackbar.Add(edit switch
+            {
+                RequestFulfilledEdit => "✨ Claude answered a request in this note",
+                AppendEdit { Source: not "Claude" } a => $"{a.Source} added to this note",
+                _ => "✨ Claude updated this note",
+            }, Severity.Info);
         });
     }
 
