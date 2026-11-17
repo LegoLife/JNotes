@@ -10,6 +10,7 @@ services:
     environment:
       JNotes__PasswordHash: ${JNOTES_PASSWORD_HASH:?Run ./set-password.sh first}
       JNotes__McpToken: ${JNOTES_MCP_TOKEN:-}
+      JNotes__ApiKey: ${JNOTES_API_KEY:-}      # notes API for other apps (ReadAlong); X-Api-Key header
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       JNotes__Claude__Model: ${JNOTES_CLAUDE_MODEL:-haiku}
       TZ: ${TZ:-America/New_York}
