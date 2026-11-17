@@ -38,7 +38,26 @@ public sealed class NotesApiTests : IAsyncLifetime
         return c;
     }
 
-    private sealed record Dto(Guid Id, string Title, string Folder, string Markdown);
+    private sealed record Dto(Guid Id, string Title, string Folder, DateTimeOffset Updated, string Markdown);
+
+    [Fact]
+    public async Task Replaces_whole_note_and_detects_conflicts()
+    {
+        var http = Client();
+        var n = await (await http.PostAsJsonAsync("/api/notes", new { title = "Edited", markdown = "one" })).Content.ReadFromJsonAsync<Dto>();
+        var saved = await http.PutAsJsonAsync($"/api/notes/{n!.Id}", new { markdown = "two", baseUpdated = n.Updated, source = "ReadAlong" });
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var after = await saved.Content.ReadFromJsonAsync<Dto>();
+        Assert.Equal("two", after!.Markdown);
+
+        // Saving again from the stale version is refused and returns the current text.
+        var stale = await http.PutAsJsonAsync($"/api/notes/{n.Id}", new { markdown = "three", baseUpdated = n.Updated });
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        Assert.Equal("two", (await stale.Content.ReadFromJsonAsync<Dto>())!.Markdown);
+
+        // From the fresh version it saves.
+        Assert.Equal(HttpStatusCode.OK, (await http.PutAsJsonAsync($"/api/notes/{n.Id}", new { markdown = "three", baseUpdated = after.Updated })).StatusCode);
+    }
 
     [Fact]
     public async Task Rejects_missing_or_wrong_key()

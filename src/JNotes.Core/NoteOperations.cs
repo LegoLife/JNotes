@@ -7,6 +7,12 @@ public sealed record AppendEdit(Guid NoteId, string NewContent, string Markdown,
 public sealed record SectionEdit(Guid NoteId, string NewContent, string Heading, string Markdown) : NoteEdit(NoteId, NewContent);
 public sealed record RequestFulfilledEdit(Guid NoteId, string NewContent, string RequestId, string ResultBlock) : NoteEdit(NoteId, NewContent);
 
+/// <summary>The note changed since the caller loaded it; Current is the latest version.</summary>
+public sealed class EditConflictException(Note current) : Exception("The note changed since it was loaded.")
+{
+    public Note Current { get; } = current;
+}
+
 /// <summary>In-process bus so open editors hear about Claude's edits.</summary>
 public sealed class NoteEvents
 {
@@ -141,18 +147,27 @@ public sealed class NoteOperations(INoteStore notes, ITemplateStore templates, N
         return (note, PathOf(await TreeAsync(ct), folderId));
     }
 
-    private async Task<Note> EditAsync(string noteReference, string reason, Func<Note, (string Updated, NoteEdit Edit)> change, CancellationToken ct)
+    /// <summary>Another app saved the whole note (e.g. ReadAlong's side editor). Snapshots only when asked,
+    /// so autosaves don't flood History. Throws <see cref="EditConflictException"/> when the note changed since <paramref name="baseUpdated"/>.</summary>
+    public Task<Note> ReplaceContentAsync(string noteReference, string content, string source, DateTimeOffset? baseUpdated, bool snapshot, CancellationToken ct = default) =>
+        EditAsync(noteReference, snapshot ? $"Before {source}: edited" : null, n =>
+        {
+            if (baseUpdated is { } b && (n.UpdatedAt - b).Duration() > TimeSpan.FromMilliseconds(1)) throw new EditConflictException(n);
+            return (content, new ReplacedEdit(n.Id, content, n.Title));
+        }, ct);
+
+    private async Task<Note> EditAsync(string noteReference, string? reason, Func<Note, (string Updated, NoteEdit Edit)> change, CancellationToken ct)
     {
         await _writeGate.WaitAsync(ct);
         try
         {
             var note = await ResolveNoteAsync(noteReference, ct);
             var (updated, edit) = change(note);
-            await history.SnapshotAsync(note.Id, reason, ct); // so any Claude edit can be undone from History
+            if (reason != null) await history.SnapshotAsync(note.Id, reason, ct); // so any outside edit can be undone from History
             await notes.SaveContentAsync(note.Id, updated, ct);
             note.Content = updated;
             events.Raise(edit);
-            return note;
+            return await notes.GetNoteAsync(note.Id, ct) ?? note; // fresh UpdatedAt for the caller
         }
         finally
         {
