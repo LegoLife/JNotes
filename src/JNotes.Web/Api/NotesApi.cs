@@ -13,6 +13,7 @@ public static class NotesApi
 {
     public sealed record CreateReq(string Title, string? Folder, string? Markdown);
     public sealed record AppendReq(string Markdown, string? Source = null);
+    public sealed record ReplaceReq(string Markdown, DateTimeOffset? BaseUpdated = null, string? Source = null);
     public sealed record NoteDto(Guid Id, string Title, string Folder, DateTimeOffset Updated, string Markdown);
 
     public static void MapNotesApi(this WebApplication app)
@@ -42,7 +43,29 @@ public static class NotesApi
         {
             if (string.IsNullOrWhiteSpace(req.Title)) return Results.Text("A title is required.", statusCode: 400);
             var n = await ops.CreateNoteAsync(req.Title.Trim(), req.Folder, null, req.Markdown, ct);
+            n = await ops.ResolveNoteAsync(n.Id.ToString(), ct); // as stored (UpdatedAt is the base for later saves)
             return Results.Ok(new NoteDto(n.Id, n.Title, NoteOperations.PathOf(await ops.TreeAsync(ct), n.FolderId), n.UpdatedAt, n.Content));
+        });
+
+        // Whole-note save from another app's editor. 409 + the current note when it changed since BaseUpdated.
+        // History gets a snapshot at most every 10 minutes per note, so autosaves don't flood it.
+        var lastSnapshot = new System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTimeOffset>();
+        api.MapPut("{id:guid}", async (Guid id, ReplaceReq req, NoteOperations ops, TimeProvider clock, CancellationToken ct) =>
+        {
+            var now = clock.GetUtcNow();
+            var snapshot = !lastSnapshot.TryGetValue(id, out var last) || now - last > TimeSpan.FromMinutes(10);
+            var source = string.IsNullOrWhiteSpace(req.Source) ? "another app" : req.Source.Trim();
+            try
+            {
+                var n = await ops.ReplaceContentAsync(id.ToString(), req.Markdown ?? "", source, req.BaseUpdated, snapshot, ct);
+                if (snapshot) lastSnapshot[id] = now;
+                return Results.Ok(new NoteDto(n.Id, n.Title, NoteOperations.PathOf(await ops.TreeAsync(ct), n.FolderId), n.UpdatedAt, n.Content));
+            }
+            catch (EditConflictException c)
+            {
+                var n = c.Current;
+                return Results.Json(new NoteDto(n.Id, n.Title, NoteOperations.PathOf(await ops.TreeAsync(ct), n.FolderId), n.UpdatedAt, n.Content), statusCode: 409);
+            }
         });
 
         api.MapPost("{id:guid}/append", async (Guid id, AppendReq req, NoteOperations ops, CancellationToken ct) =>
